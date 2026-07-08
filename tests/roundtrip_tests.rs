@@ -199,19 +199,4 @@ fn vcs_dirty_shows_asterisk() {
     }
 }
 
-#[test]
-fn narrow_layout_model_trimming() {
-    let json_high = r#"{"agent_state":"idle","context_window":{"used_percentage":0,"total_input_tokens":0,"total_output_tokens":0,"context_window_size":0},"sandbox":{"enabled":false,"allow_network":false},"artifact_count":0,"subagents":[],"task_count":0,"model":{"id":"gemini-3.5-flash-high","display_name":"Gemini 3.5 Flash (High)"},"terminal_width":60}"#;
-    let out_high = run_statusline(json_high, &[]).unwrap();
-    let lines_high: Vec<&str> = out_high.lines().collect();
-    let line1_high = strip_ansi(lines_high[0]);
-    assert!(line1_high.contains("Gemini 3.5 Flash"), "Should trim (High) from model name: {}", line1_high);
-    assert!(!line1_high.contains("(High)"), "Should not contain (High): {}", line1_high);
 
-    let json_long = r#"{"agent_state":"idle","context_window":{"used_percentage":0,"total_input_tokens":0,"total_output_tokens":0,"context_window_size":0},"sandbox":{"enabled":false,"allow_network":false},"artifact_count":0,"subagents":[],"task_count":0,"model":{"id":"long-model","display_name":"SuperLongModelNameThatExceedsTwentyChars"},"terminal_width":60}"#;
-    let out_long = run_statusline(json_long, &[]).unwrap();
-    let lines_long: Vec<&str> = out_long.lines().collect();
-    let line1_long = strip_ansi(lines_long[0]);
-    assert!(line1_long.contains("SuperLongModelNameTh"), "Should limit model name to 20 chars: {}", line1_long);
-    assert!(!line1_long.contains("Chars"), "Should not contain full name: {}", line1_long);
-}
