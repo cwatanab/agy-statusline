@@ -524,11 +524,10 @@ fn build_view(input: &ParsedInput, icons: &Icons, classic: bool) -> View {
 
     // Model short (for narrow layout)
     let model_short_str = if !model_display.is_empty() {
-        let max_len = 12.min(model_display.len());
         if classic {
-            format!("{ANSI_GRAY} ╱ {ANSI_BRIGHT_MAGENTA}{}{RESET}", &model_display[..max_len])
+            format!("{ANSI_GRAY} ╱ {ANSI_BRIGHT_MAGENTA}{}{RESET}", model_display)
         } else {
-            format!("{ANSI_GRAY} ╱ {ANSI_BRIGHT_MAGENTA}{} {}{RESET}", icons.model, &model_display[..max_len])
+            format!("{ANSI_GRAY} ╱ {ANSI_BRIGHT_MAGENTA}{} {}{RESET}", icons.model, model_display)
         }
     } else {
         String::new()
