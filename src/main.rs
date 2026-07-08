@@ -1,6 +1,11 @@
+mod parse;
+mod sys;
+
 use std::env;
 use std::io::{self, Read};
-use std::process::Command;
+
+use parse::ParsedInput;
+use sys::{git_info, hostname, power_status, tailscale_ip};
 
 // ─── ANSI Escape Codes ────────────────────────────────────────────────────
 
@@ -86,433 +91,6 @@ fn preformat(color: &str, text: &str) -> String {
     format!("{color}{text}{RESET}")
 }
 
-// ─── Parsed Input ─────────────────────────────────────────────────────────
-
-struct ParsedInput {
-    agent_state: String,
-    used_percentage: f64,
-    sandbox_enabled: bool,
-    sandbox_allow_network: bool,
-    artifact_count: u32,
-    subagent_count: u32,
-    task_count: u32,
-    model_id: String,
-    model_display_name: String,
-    terminal_width: u32,
-    working_dir: String,
-    conversation_id: String,
-    version: String,
-    plan_tier: String,
-    email: String,
-    total_input_tokens: u64,
-    total_output_tokens: u64,
-    context_window_size: u64,
-    turn_input_tokens: u64,
-    turn_output_tokens: u64,
-    gemini_5h_pct: f64,
-    gemini_weekly_pct: f64,
-    third_party_5h_pct: f64,
-    third_party_weekly_pct: f64,
-    gemini_5h_reset: i64,
-    gemini_weekly_reset: i64,
-    third_party_5h_reset: i64,
-    third_party_weekly_reset: i64,
-}
-
-// ─── JSON Parser ──────────────────────────────────────────────────────────
-
-struct JsonParser<'a> {
-    bytes: &'a [u8],
-    pos: usize,
-}
-
-impl<'a> JsonParser<'a> {
-    fn new(input: &'a str) -> Self {
-        JsonParser { bytes: input.as_bytes(), pos: 0 }
-    }
-
-    fn skip_whitespace(&mut self) {
-        while self.pos < self.bytes.len() {
-            match self.bytes[self.pos] {
-                b' ' | b'\t' | b'\n' | b'\r' => self.pos += 1,
-                _ => break,
-            }
-        }
-    }
-
-    fn peek(&self) -> Option<u8> {
-        self.bytes.get(self.pos).copied()
-    }
-
-    fn advance(&mut self) {
-        self.pos += 1;
-    }
-
-    fn is_null(&mut self) -> bool {
-        self.skip_whitespace();
-        if self.bytes.get(self.pos..self.pos + 4) == Some(b"null") {
-            self.pos += 4;
-            true
-        } else {
-            false
-        }
-    }
-
-    fn read_string(&mut self) -> &'a str {
-        self.skip_whitespace();
-        self.advance(); // skip opening quote
-        let start = self.pos;
-        while self.pos < self.bytes.len() && self.bytes[self.pos] != b'"' {
-            if self.bytes[self.pos] == b'\\' {
-                self.pos += 1;
-            }
-            self.pos += 1;
-        }
-        let end = self.pos;
-        self.advance(); // skip closing quote
-        std::str::from_utf8(&self.bytes[start..end]).unwrap_or("")
-    }
-
-    fn read_f64(&mut self) -> f64 {
-        self.read_number_str().parse().unwrap_or(0.0)
-    }
-
-    fn read_u64(&mut self) -> u64 {
-        self.read_number_str().parse().unwrap_or(0)
-    }
-
-    fn read_u32(&mut self) -> u32 {
-        self.read_number_str().parse().unwrap_or(0)
-    }
-
-    fn read_i64(&mut self) -> i64 {
-        self.read_number_str().parse().unwrap_or(-1)
-    }
-
-    fn read_number_str(&mut self) -> &'a str {
-        self.skip_whitespace();
-        let start = self.pos;
-        while self.pos < self.bytes.len() {
-            match self.bytes[self.pos] {
-                b'-' | b'0'..=b'9' | b'.' | b'e' | b'E' | b'+' => self.pos += 1,
-                _ => break,
-            }
-        }
-        std::str::from_utf8(&self.bytes[start..self.pos]).unwrap_or("0")
-    }
-
-    fn read_bool(&mut self) -> bool {
-        self.skip_whitespace();
-        if self.bytes[self.pos] == b't' {
-            self.pos += 4;
-            true
-        } else {
-            self.pos += 5;
-            false
-        }
-    }
-
-    fn read_array_len(&mut self) -> u32 {
-        self.skip_whitespace();
-        self.advance(); // skip '['
-        let mut count = 0;
-        loop {
-            self.skip_whitespace();
-            if self.peek() == Some(b']') {
-                self.advance();
-                return count;
-            }
-            self.skip_value();
-            count += 1;
-            self.skip_whitespace();
-            if self.peek() == Some(b',') {
-                self.advance();
-            }
-        }
-    }
-
-    fn skip_value(&mut self) {
-        self.skip_whitespace();
-        match self.peek() {
-            Some(b'"') => {
-                self.advance();
-                while self.pos < self.bytes.len() && self.bytes[self.pos] != b'"' {
-                    if self.bytes[self.pos] == b'\\' {
-                        self.pos += 1;
-                    }
-                    self.pos += 1;
-                }
-                self.advance();
-            }
-            Some(b'{') => { self.advance(); self.skip_object(); }
-            Some(b'[') => { self.advance(); self.skip_array(); }
-            Some(b't') => { self.pos += 4; }
-            Some(b'f') => { self.pos += 5; }
-            Some(b'n') => { self.pos += 4; }
-            Some(b'-' | b'0'..=b'9') => { self.read_number_str(); }
-            _ => {}
-        }
-    }
-
-    fn skip_object(&mut self) {
-        loop {
-            self.skip_whitespace();
-            if self.peek() == Some(b'}') {
-                self.advance();
-                return;
-            }
-            self.skip_value(); // key
-            self.skip_whitespace();
-            if self.peek() == Some(b':') {
-                self.advance();
-                self.skip_value(); // value
-            }
-            self.skip_whitespace();
-            if self.peek() == Some(b',') {
-                self.advance();
-            }
-        }
-    }
-
-    fn skip_array(&mut self) {
-        loop {
-            self.skip_whitespace();
-            if self.peek() == Some(b']') {
-                self.advance();
-                return;
-            }
-            self.skip_value();
-            self.skip_whitespace();
-            if self.peek() == Some(b',') {
-                self.advance();
-            }
-        }
-    }
-}
-
-fn parse_input(json: &str) -> ParsedInput {
-    let mut p = JsonParser::new(json);
-    p.skip_whitespace();
-    if p.peek() != Some(b'{') {
-        return ParsedInput::default();
-    }
-    p.advance();
-
-    let mut input = ParsedInput::default();
-
-    loop {
-        p.skip_whitespace();
-        match p.peek() {
-            None => break,
-            Some(b'}') => break,
-            Some(b'"') => {
-                let key = p.read_string();
-                p.skip_whitespace();
-                if p.peek() == Some(b':') {
-                    p.advance();
-                } else {
-                    continue;
-                }
-                parse_field(&mut p, &mut input, key);
-                p.skip_whitespace();
-                if p.peek() == Some(b',') {
-                    p.advance();
-                }
-            }
-            _ => {
-                p.skip_value();
-                p.skip_whitespace();
-                if p.peek() == Some(b',') {
-                    p.advance();
-                }
-            }
-        }
-    }
-
-    input
-}
-
-fn parse_field(p: &mut JsonParser, input: &mut ParsedInput, key: &str) {
-    match key {
-        "agent_state" => {
-            if !p.is_null() { input.agent_state = p.read_string().to_string(); }
-        }
-        "artifact_count" => input.artifact_count = p.read_u32(),
-        "task_count" => input.task_count = p.read_u32(),
-        "terminal_width" => input.terminal_width = p.read_u32(),
-        "cwd" => {
-            if !p.is_null() { input.working_dir = p.read_string().to_string(); }
-        }
-        "conversation_id" => {
-            if !p.is_null() { input.conversation_id = p.read_string().to_string(); }
-        }
-        "version" => {
-            if !p.is_null() { input.version = p.read_string().to_string(); }
-        }
-        "plan_tier" => {
-            if !p.is_null() { input.plan_tier = p.read_string().to_string(); }
-        }
-        "email" => {
-            if !p.is_null() { input.email = p.read_string().to_string(); }
-        }
-        "subagents" => {
-            if p.is_null() {
-                input.subagent_count = 0;
-            } else {
-                input.subagent_count = p.read_array_len();
-            }
-        }
-        "context_window" => parse_context_window(p, input),
-        "sandbox" => parse_sandbox(p, input),
-        "model" => parse_model(p, input),
-        "quota" => parse_quota(p, input),
-        _ => { p.skip_value(); }
-    }
-}
-
-fn parse_context_window(p: &mut JsonParser, input: &mut ParsedInput) {
-    p.skip_whitespace();
-    p.advance(); // skip '{'
-    loop {
-        p.skip_whitespace();
-        if p.peek() == Some(b'}') { p.advance(); break; }
-        let key = p.read_string();
-        p.skip_whitespace();
-        if p.peek() == Some(b':') { p.advance(); }
-        match key {
-            "used_percentage" => input.used_percentage = p.read_f64(),
-            "total_input_tokens" => input.total_input_tokens = p.read_u64(),
-            "total_output_tokens" => input.total_output_tokens = p.read_u64(),
-            "context_window_size" => input.context_window_size = p.read_u64(),
-            "current_usage" => {
-                p.skip_whitespace();
-                p.advance(); // skip '{'
-                loop {
-                    p.skip_whitespace();
-                    if p.peek() == Some(b'}') { p.advance(); break; }
-                    match p.read_string() {
-                        "input_tokens" => { p.skip_whitespace(); p.advance(); input.turn_input_tokens = p.read_u64(); }
-                        "output_tokens" => { p.skip_whitespace(); p.advance(); input.turn_output_tokens = p.read_u64(); }
-                        _ => { p.skip_whitespace(); p.advance(); p.skip_value(); }
-                    }
-                    p.skip_whitespace();
-                    if p.peek() == Some(b',') { p.advance(); }
-                }
-            }
-            _ => { p.skip_value(); }
-        }
-        p.skip_whitespace();
-        if p.peek() == Some(b',') { p.advance(); }
-    }
-}
-
-fn parse_sandbox(p: &mut JsonParser, input: &mut ParsedInput) {
-    p.skip_whitespace();
-    p.advance(); // skip '{'
-    loop {
-        p.skip_whitespace();
-        if p.peek() == Some(b'}') { p.advance(); break; }
-        match p.read_string() {
-            "enabled" => { p.skip_whitespace(); p.advance(); input.sandbox_enabled = p.read_bool(); }
-            "allow_network" => { p.skip_whitespace(); p.advance(); input.sandbox_allow_network = p.read_bool(); }
-            _ => { p.skip_whitespace(); p.advance(); p.skip_value(); }
-        }
-        p.skip_whitespace();
-        if p.peek() == Some(b',') { p.advance(); }
-    }
-}
-
-fn parse_model(p: &mut JsonParser, input: &mut ParsedInput) {
-    p.skip_whitespace();
-    p.advance(); // skip '{'
-    loop {
-        p.skip_whitespace();
-        if p.peek() == Some(b'}') { p.advance(); break; }
-        match p.read_string() {
-            "id" => { p.skip_whitespace(); p.advance(); if !p.is_null() { input.model_id = p.read_string().to_string(); } }
-            "display_name" => { p.skip_whitespace(); p.advance(); if !p.is_null() { input.model_display_name = p.read_string().to_string(); } }
-            _ => { p.skip_whitespace(); p.advance(); p.skip_value(); }
-        }
-        p.skip_whitespace();
-        if p.peek() == Some(b',') { p.advance(); }
-    }
-}
-
-fn parse_quota(p: &mut JsonParser, input: &mut ParsedInput) {
-    p.skip_whitespace();
-    p.advance(); // skip '{'
-    loop {
-        p.skip_whitespace();
-        if p.peek() == Some(b'}') { p.advance(); break; }
-        let quota_key = p.read_string().to_string();
-        p.skip_whitespace();
-        p.advance(); // skip ':'
-        p.skip_whitespace();
-        p.advance(); // skip '{'
-        let mut fraction = -1.0f64;
-        let mut reset_sec = -1i64;
-        loop {
-            p.skip_whitespace();
-            if p.peek() == Some(b'}') { p.advance(); break; }
-            let entry_key = p.read_string();
-            p.skip_whitespace();
-            p.advance(); // skip ':'
-            match entry_key {
-                "remaining_fraction" => { if !p.is_null() { fraction = p.read_f64(); } }
-                "reset_in_seconds" => { if !p.is_null() { reset_sec = p.read_i64(); } }
-                _ => { p.skip_value(); }
-            }
-            p.skip_whitespace();
-            if p.peek() == Some(b',') { p.advance(); }
-        }
-        let pct = if fraction >= 0.0 { (fraction * 1000.0).round() / 10.0 } else { -1.0 };
-        match quota_key.as_str() {
-            "gemini-5h" => { input.gemini_5h_pct = pct; input.gemini_5h_reset = reset_sec; }
-            "gemini-weekly" => { input.gemini_weekly_pct = pct; input.gemini_weekly_reset = reset_sec; }
-            "3p-5h" => { input.third_party_5h_pct = pct; input.third_party_5h_reset = reset_sec; }
-            "3p-weekly" => { input.third_party_weekly_pct = pct; input.third_party_weekly_reset = reset_sec; }
-            _ => {}
-        }
-        p.skip_whitespace();
-        if p.peek() == Some(b',') { p.advance(); }
-    }
-}
-
-impl Default for ParsedInput {
-    fn default() -> Self {
-        ParsedInput {
-            agent_state: "idle".into(),
-            used_percentage: 0.0,
-            sandbox_enabled: false,
-            sandbox_allow_network: false,
-            artifact_count: 0,
-            subagent_count: 0,
-            task_count: 0,
-            model_id: String::new(),
-            model_display_name: String::new(),
-            terminal_width: 80,
-            working_dir: String::new(),
-            conversation_id: String::new(),
-            version: String::new(),
-            plan_tier: String::new(),
-            email: String::new(),
-            total_input_tokens: 0,
-            total_output_tokens: 0,
-            context_window_size: 0,
-            turn_input_tokens: 0,
-            turn_output_tokens: 0,
-            gemini_5h_pct: -1.0,
-            gemini_weekly_pct: -1.0,
-            third_party_5h_pct: -1.0,
-            third_party_weekly_pct: -1.0,
-            gemini_5h_reset: -1,
-            gemini_weekly_reset: -1,
-            third_party_5h_reset: -1,
-            third_party_weekly_reset: -1,
-        }
-    }
-}
-
 // ─── Formatting Helpers ───────────────────────────────────────────────────
 
 fn human_format(num: u64) -> String {
@@ -581,90 +159,6 @@ fn visible_length(s: &str) -> usize {
     count
 }
 
-// ─── System Info Helpers ──────────────────────────────────────────────────
-
-fn hostname() -> String {
-    Command::new("hostname")
-        .output()
-        .ok()
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .map(|s| s.trim().to_string())
-        .unwrap_or_default()
-}
-
-fn tailscale_ip() -> String {
-    #[cfg(target_os = "linux")]
-    {
-        Command::new("ip")
-            .args(["-4", "addr", "show", "dev", "tailscale0"])
-            .output()
-            .ok()
-            .and_then(|o| String::from_utf8(o.stdout).ok())
-            .and_then(|output| {
-                output.lines().find_map(|line| {
-                    let trimmed = line.trim();
-                    if trimmed.starts_with("inet ") {
-                        trimmed
-                            .split_whitespace()
-                            .nth(1)
-                            .map(|addr| addr.split('/').next().unwrap_or("").to_string())
-                    } else {
-                        None
-                    }
-                })
-            })
-            .unwrap_or_default()
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        String::new()
-    }
-}
-
-fn power_status() -> (bool, Option<u8>) {
-    #[cfg(target_os = "linux")]
-    {
-        let ac = std::fs::read_to_string("/sys/class/power_supply/ACAD/online")
-            .ok()
-            .and_then(|s| s.trim().parse::<u8>().ok())
-            .unwrap_or(1);
-        let battery = std::fs::read_to_string("/sys/class/power_supply/BAT1/capacity")
-            .ok()
-            .and_then(|s| s.trim().parse::<u8>().ok());
-        (ac == 0, battery)
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        (false, None)
-    }
-}
-
-fn git_info(working_dir: &str) -> (String, String, bool) {
-    let dir = if working_dir.is_empty() { "." } else { working_dir };
-
-    let branch = Command::new("git")
-        .args(["-C", dir, "rev-parse", "--abbrev-ref", "HEAD"])
-        .output()
-        .ok()
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .map(|s| s.trim().to_string())
-        .unwrap_or_default();
-
-    if branch.is_empty() {
-        return (String::new(), String::new(), false);
-    }
-
-    let dirty = Command::new("git")
-        .args(["-C", dir, "status", "--porcelain"])
-        .output()
-        .ok()
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .map(|s| !s.trim().is_empty())
-        .unwrap_or(false);
-
-    ("git".to_string(), branch, dirty)
-}
-
 // ─── Bar Drawing ──────────────────────────────────────────────────────────
 
 fn build_quota_bar(
@@ -709,33 +203,19 @@ fn build_quota_bar(
     let mut bar = String::with_capacity(160);
     for i in 0..20u32 {
         if i < filled {
-            if use_classic {
-                bar.push('█');
-            } else {
-                bar.push_str(&block_full);
-            }
+            if use_classic { bar.push('█'); } else { bar.push_str(&block_full); }
         } else if i == filled {
             if use_classic {
                 bar.push_str(match remainder {
-                    75.. => "▓",
-                    50.. => "▒",
-                    25.. => "░",
-                    _ => "·",
+                    75.. => "▓", 50.. => "▒", 25.. => "░", _ => "·",
                 });
             } else {
                 bar.push_str(match remainder {
-                    75.. => &block_75,
-                    50.. => &block_50,
-                    25.. => &block_25,
-                    _ => &block_empty,
+                    75.. => &block_75, 50.. => &block_50, 25.. => &block_25, _ => &block_empty,
                 });
             }
         } else {
-            if use_classic {
-                bar.push('·');
-            } else {
-                bar.push_str(&block_empty);
-            }
+            if use_classic { bar.push('·'); } else { bar.push_str(&block_empty); }
         }
     }
 
@@ -806,18 +286,11 @@ fn build_view(input: &ParsedInput, icons: &Icons, classic: bool) -> View {
 
     let context_used = input.total_input_tokens + input.total_output_tokens;
 
-    // Active quota selection
     let (active_5h, active_weekly, active_5h_reset, active_weekly_reset) =
         if (input.gemini_5h_pct >= 0.0) || (input.gemini_weekly_pct >= 0.0) {
-            (
-                input.gemini_5h_pct, input.gemini_weekly_pct,
-                input.gemini_5h_reset, input.gemini_weekly_reset,
-            )
+            (input.gemini_5h_pct, input.gemini_weekly_pct, input.gemini_5h_reset, input.gemini_weekly_reset)
         } else if (input.third_party_5h_pct >= 0.0) || (input.third_party_weekly_pct >= 0.0) {
-            (
-                input.third_party_5h_pct, input.third_party_weekly_pct,
-                input.third_party_5h_reset, input.third_party_weekly_reset,
-            )
+            (input.third_party_5h_pct, input.third_party_weekly_pct, input.third_party_5h_reset, input.third_party_weekly_reset)
         } else {
             (-1.0, -1.0, -1, -1)
         };
@@ -847,11 +320,7 @@ fn build_view(input: &ParsedInput, icons: &Icons, classic: bool) -> View {
         } else {
             input.email.clone()
         };
-        let truncated = if info.len() > 35 {
-            format!("{}...", &info[..32])
-        } else {
-            info
-        };
+        let truncated = if info.len() > 35 { format!("{}...", &info[..32]) } else { info };
         if classic {
             format!("{dot_l1}{ANSI_GRAY}{truncated}{RESET}")
         } else {
@@ -865,11 +334,7 @@ fn build_view(input: &ParsedInput, icons: &Icons, classic: bool) -> View {
     let host_name = hostname();
     let ts_ip = tailscale_ip();
     let host_str = if !host_name.is_empty() {
-        let details = if !ts_ip.is_empty() {
-            format!("{host_name} ({ts_ip})")
-        } else {
-            host_name
-        };
+        let details = if !ts_ip.is_empty() { format!("{host_name} ({ts_ip})") } else { host_name };
         if classic {
             format!("{dot_l1}{ANSI_BRIGHT_BLUE}{details}{RESET}")
         } else {
@@ -892,12 +357,10 @@ fn build_view(input: &ParsedInput, icons: &Icons, classic: bool) -> View {
             } else {
                 format!("{dot_l2}{ANSI_BRIGHT_YELLOW}{}{RESET}", icons.battery)
             }
+        } else if classic {
+            format!("{dot_l2}{ANSI_GREEN}{}{RESET}", icons.ac)
         } else {
-            if classic {
-                format!("{dot_l2}{ANSI_GREEN}{}{RESET}", icons.ac)
-            } else {
-                format!("{dot_l2}{ANSI_GREEN}{} AC{RESET}", icons.ac)
-            }
+            format!("{dot_l2}{ANSI_GREEN}{} AC{RESET}", icons.ac)
         }
     };
 
@@ -971,13 +434,9 @@ fn build_view(input: &ParsedInput, icons: &Icons, classic: bool) -> View {
     let pct_display = format!("{}.{}", pct_x10 / 10, pct_x10 % 10);
     let num_fmt = format!("{ANSI_BRIGHT_WHITE}{BOLD}{pct_display}%{RESET}");
 
-    let fill_color = if pct_int >= 90 {
-        ANSI_BRIGHT_RED
-    } else if pct_int >= 60 {
-        ANSI_BRIGHT_YELLOW
-    } else {
-        ANSI_YELLOW
-    };
+    let fill_color = if pct_int >= 90 { ANSI_BRIGHT_RED }
+    else if pct_int >= 60 { ANSI_BRIGHT_YELLOW }
+    else { ANSI_YELLOW };
 
     let filled_segments = pct_int * 20 / 100;
     let rem = (pct_int * 20) % 100;
@@ -991,35 +450,17 @@ fn build_view(input: &ParsedInput, icons: &Icons, classic: bool) -> View {
     let ctx_bar = if classic {
         let mut bar = String::with_capacity(40);
         for i in 0..20u32 {
-            if i < filled_segments {
-                bar.push('█');
-            } else if i == filled_segments {
-                bar.push_str(match rem {
-                    75.. => "▓",
-                    50.. => "▒",
-                    25.. => "░",
-                    _ => "·",
-                });
-            } else {
-                bar.push('·');
-            }
+            if i < filled_segments { bar.push('█'); }
+            else if i == filled_segments { bar.push_str(match rem { 75.. => "▓", 50.. => "▒", 25.. => "░", _ => "·" }); }
+            else { bar.push('·'); }
         }
         format!("{ANSI_GRAY}ctx {fill_color}{bar} {num_fmt}")
     } else {
         let mut bar = String::with_capacity(160);
         for i in 0..20u32 {
-            if i < filled_segments {
-                bar.push_str(&block_full);
-            } else if i == filled_segments {
-                bar.push_str(match rem {
-                    75.. => &block_75,
-                    50.. => &block_50,
-                    25.. => &block_25,
-                    _ => &block_empty,
-                });
-            } else {
-                bar.push_str(&block_empty);
-            }
+            if i < filled_segments { bar.push_str(&block_full); }
+            else if i == filled_segments { bar.push_str(match rem { 75.. => &block_75, 50.. => &block_50, 25.. => &block_25, _ => &block_empty }); }
+            else { bar.push_str(&block_empty); }
         }
         format!("{ANSI_YELLOW}{}  {RESET}{bar} {num_fmt}", icons.context_bar)
     };
@@ -1110,7 +551,7 @@ fn main() {
     let mut stdin = String::new();
     io::stdin().read_to_string(&mut stdin).unwrap();
 
-    let input = parse_input(&stdin);
+    let input = parse::parse_input(&stdin);
     let icons = select_icons(use_classic);
     let view = build_view(&input, &icons, use_classic);
     let cols = input.terminal_width;
