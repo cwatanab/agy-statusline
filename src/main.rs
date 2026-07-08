@@ -2,68 +2,518 @@ use std::env;
 use std::io::{self, Read};
 use std::process::Command;
 
-const R: &str = "\x1b[0m";
-const B: &str = "\x1b[1m";
-const I: &str = "\x1b[3m";
+// ─── ANSI Escape Codes ────────────────────────────────────────────────────
 
-const FG_RED: &str = "\x1b[31m";
-const FG_GREEN: &str = "\x1b[32m";
-const FG_YELLOW: &str = "\x1b[33m";
-const FG_BLUE: &str = "\x1b[34m";
-const FG_MAGENTA: &str = "\x1b[35m";
-const FG_CYAN: &str = "\x1b[36m";
-const FG_WHITE: &str = "\x1b[37m";
+const RESET: &str = "\x1b[0m";
+const BOLD: &str = "\x1b[1m";
+const ITALIC: &str = "\x1b[3m";
 
-const FG_GRAY: &str = "\x1b[90m";
-const FG_BRIGHT_RED: &str = "\x1b[91m";
-const FG_BRIGHT_GREEN: &str = "\x1b[92m";
-const FG_BRIGHT_YELLOW: &str = "\x1b[93m";
-const FG_BRIGHT_BLUE: &str = "\x1b[94m";
-const FG_BRIGHT_MAGENTA: &str = "\x1b[95m";
-const FG_BRIGHT_CYAN: &str = "\x1b[96m";
-const FG_BRIGHT_WHITE: &str = "\x1b[97m";
+const ANSI_RED: &str = "\x1b[31m";
+const ANSI_GREEN: &str = "\x1b[32m";
+const ANSI_YELLOW: &str = "\x1b[33m";
+const ANSI_BLUE: &str = "\x1b[34m";
+const ANSI_MAGENTA: &str = "\x1b[35m";
+const ANSI_CYAN: &str = "\x1b[36m";
+const ANSI_WHITE: &str = "\x1b[37m";
 
-struct Parser<'a> {
-    s: &'a [u8],
-    i: usize,
+const ANSI_GRAY: &str = "\x1b[90m";
+const ANSI_BRIGHT_RED: &str = "\x1b[91m";
+const ANSI_BRIGHT_GREEN: &str = "\x1b[92m";
+const ANSI_BRIGHT_YELLOW: &str = "\x1b[93m";
+const ANSI_BRIGHT_BLUE: &str = "\x1b[94m";
+const ANSI_BRIGHT_MAGENTA: &str = "\x1b[95m";
+const ANSI_BRIGHT_CYAN: &str = "\x1b[96m";
+const ANSI_BRIGHT_WHITE: &str = "\x1b[97m";
+
+// ─── Nerd Font Icons ──────────────────────────────────────────────────────
+
+struct Icons {
+    dot_l1: String,
+    dot_l2: String,
+    vcs: &'static str,
+    model: &'static str,
+    sandbox_net: &'static str,
+    sandbox_nonet: &'static str,
+    sandbox_off: &'static str,
+    context_bar: &'static str,
+    artifacts: &'static str,
+    subagents: &'static str,
+    tasks: &'static str,
+    dir: &'static str,
+    conversation: &'static str,
+    token_sum: &'static str,
+    reset: &'static str,
+    ac: &'static str,
+    battery: &'static str,
+    state_ready: &'static str,
+    state_thinking: &'static str,
+    state_working: &'static str,
+    state_tool: &'static str,
+    state_unknown: &'static str,
+    user: &'static str,
+    host: &'static str,
 }
 
-impl<'a> Parser<'a> {
-    fn new(s: &'a str) -> Self { Parser { s: s.as_bytes(), i: 0 } }
+fn select_icons(classic: bool) -> Icons {
+    if classic {
+        Icons {
+            dot_l1: preformat(ANSI_GRAY, " ╱ "),
+            dot_l2: preformat(ANSI_GRAY, " · "),
+            vcs: "", model: "",
+            sandbox_net: "ON (net)", sandbox_nonet: "ON (no-net)", sandbox_off: "OFF",
+            context_bar: "ctx", artifacts: "artifacts", subagents: "subagents", tasks: "tasks",
+            dir: "", conversation: "", token_sum: "",
+            reset: "\u{231B}", ac: "AC", battery: "BAT",
+            state_ready: "●", state_thinking: "◆", state_working: "⚙", state_tool: "🔧", state_unknown: "\u{231B}",
+            user: "", host: "",
+        }
+    } else {
+        Icons {
+            dot_l1: preformat(ANSI_GRAY, " | "),
+            dot_l2: preformat(ANSI_GRAY, " | "),
+            vcs: "\u{F418}", model: "\u{F400}",
+            sandbox_net: "\u{F0499}", sandbox_nonet: "\u{F0D34}", sandbox_off: "\u{F099C}",
+            context_bar: "\u{F134F}", artifacts: "\u{F0F6}", subagents: "\u{F167A}", tasks: "\u{F0AE}",
+            dir: "\u{EA83}", conversation: "\u{F036A}", token_sum: "\u{E26B}",
+            reset: "\u{231B}\u{FE0F}", ac: "\u{F06A5}", battery: "\u{1F50B}",
+            state_ready: "\u{F192}", state_thinking: "\u{F07F7}", state_working: "\u{F423}", state_tool: "\u{F425}", state_unknown: "\u{F252}",
+            user: "\u{F01EE}", host: "\u{F048B}",
+        }
+    }
+}
 
-    #[inline] fn ws(&mut self) { while self.i < self.s.len() && matches!(self.s[self.i], b' ' | b'\t' | b'\n' | b'\r') { self.i += 1; } }
-    #[inline] fn peek(&self) -> Option<u8> { self.s.get(self.i).copied() }
+fn preformat(color: &str, text: &str) -> String {
+    format!("{color}{text}{RESET}")
+}
 
-    fn skip_val(&mut self) {
-        self.ws();
+// ─── Parsed Input ─────────────────────────────────────────────────────────
+
+struct ParsedInput {
+    agent_state: String,
+    used_percentage: f64,
+    sandbox_enabled: bool,
+    sandbox_allow_network: bool,
+    artifact_count: u32,
+    subagent_count: u32,
+    task_count: u32,
+    model_id: String,
+    model_display_name: String,
+    terminal_width: u32,
+    working_dir: String,
+    conversation_id: String,
+    version: String,
+    plan_tier: String,
+    email: String,
+    total_input_tokens: u64,
+    total_output_tokens: u64,
+    context_window_size: u64,
+    turn_input_tokens: u64,
+    turn_output_tokens: u64,
+    gemini_5h_pct: f64,
+    gemini_weekly_pct: f64,
+    third_party_5h_pct: f64,
+    third_party_weekly_pct: f64,
+    gemini_5h_reset: i64,
+    gemini_weekly_reset: i64,
+    third_party_5h_reset: i64,
+    third_party_weekly_reset: i64,
+}
+
+// ─── JSON Parser ──────────────────────────────────────────────────────────
+
+struct JsonParser<'a> {
+    bytes: &'a [u8],
+    pos: usize,
+}
+
+impl<'a> JsonParser<'a> {
+    fn new(input: &'a str) -> Self {
+        JsonParser { bytes: input.as_bytes(), pos: 0 }
+    }
+
+    fn skip_whitespace(&mut self) {
+        while self.pos < self.bytes.len() {
+            match self.bytes[self.pos] {
+                b' ' | b'\t' | b'\n' | b'\r' => self.pos += 1,
+                _ => break,
+            }
+        }
+    }
+
+    fn peek(&self) -> Option<u8> {
+        self.bytes.get(self.pos).copied()
+    }
+
+    fn advance(&mut self) {
+        self.pos += 1;
+    }
+
+    fn is_null(&mut self) -> bool {
+        self.skip_whitespace();
+        if self.bytes.get(self.pos..self.pos + 4) == Some(b"null") {
+            self.pos += 4;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn read_string(&mut self) -> &'a str {
+        self.skip_whitespace();
+        self.advance(); // skip opening quote
+        let start = self.pos;
+        while self.pos < self.bytes.len() && self.bytes[self.pos] != b'"' {
+            if self.bytes[self.pos] == b'\\' {
+                self.pos += 1;
+            }
+            self.pos += 1;
+        }
+        let end = self.pos;
+        self.advance(); // skip closing quote
+        std::str::from_utf8(&self.bytes[start..end]).unwrap_or("")
+    }
+
+    fn read_f64(&mut self) -> f64 {
+        self.read_number_str().parse().unwrap_or(0.0)
+    }
+
+    fn read_u64(&mut self) -> u64 {
+        self.read_number_str().parse().unwrap_or(0)
+    }
+
+    fn read_u32(&mut self) -> u32 {
+        self.read_number_str().parse().unwrap_or(0)
+    }
+
+    fn read_i64(&mut self) -> i64 {
+        self.read_number_str().parse().unwrap_or(-1)
+    }
+
+    fn read_number_str(&mut self) -> &'a str {
+        self.skip_whitespace();
+        let start = self.pos;
+        while self.pos < self.bytes.len() {
+            match self.bytes[self.pos] {
+                b'-' | b'0'..=b'9' | b'.' | b'e' | b'E' | b'+' => self.pos += 1,
+                _ => break,
+            }
+        }
+        std::str::from_utf8(&self.bytes[start..self.pos]).unwrap_or("0")
+    }
+
+    fn read_bool(&mut self) -> bool {
+        self.skip_whitespace();
+        if self.bytes[self.pos] == b't' {
+            self.pos += 4;
+            true
+        } else {
+            self.pos += 5;
+            false
+        }
+    }
+
+    fn read_array_len(&mut self) -> u32 {
+        self.skip_whitespace();
+        self.advance(); // skip '['
+        let mut count = 0;
+        loop {
+            self.skip_whitespace();
+            if self.peek() == Some(b']') {
+                self.advance();
+                return count;
+            }
+            self.skip_value();
+            count += 1;
+            self.skip_whitespace();
+            if self.peek() == Some(b',') {
+                self.advance();
+            }
+        }
+    }
+
+    fn skip_value(&mut self) {
+        self.skip_whitespace();
         match self.peek() {
-            Some(b'"') => { self.i += 1; while self.i < self.s.len() && self.s[self.i] != b'"' { if self.s[self.i] == b'\\' { self.i += 1; } self.i += 1; } self.i += 1; }
-            Some(b'{') => { self.i += 1; self.skip_obj(); }
-            Some(b'[') => { self.i += 1; self.skip_arr(); }
-            Some(b't') | Some(b'f') => { self.i += if self.s[self.i] == b't' { 4 } else { 5 }; }
-            Some(b'n') => { self.i += 4; }
-            Some(b'-' | b'0'..=b'9') => { while self.i < self.s.len() && matches!(self.s[self.i], b'-' | b'0'..=b'9' | b'.' | b'e' | b'E' | b'+') { self.i += 1; } }
+            Some(b'"') => {
+                self.advance();
+                while self.pos < self.bytes.len() && self.bytes[self.pos] != b'"' {
+                    if self.bytes[self.pos] == b'\\' {
+                        self.pos += 1;
+                    }
+                    self.pos += 1;
+                }
+                self.advance();
+            }
+            Some(b'{') => { self.advance(); self.skip_object(); }
+            Some(b'[') => { self.advance(); self.skip_array(); }
+            Some(b't') => { self.pos += 4; }
+            Some(b'f') => { self.pos += 5; }
+            Some(b'n') => { self.pos += 4; }
+            Some(b'-' | b'0'..=b'9') => { self.read_number_str(); }
             _ => {}
         }
     }
-    fn skip_obj(&mut self) { loop { self.ws(); if self.peek() == Some(b'}') { self.i += 1; return; } self.skip_val(); self.ws(); if self.peek() == Some(b':') { self.i += 1; self.skip_val(); } self.ws(); if self.peek() == Some(b',') { self.i += 1; } } }
-    fn skip_arr(&mut self) { loop { self.ws(); if self.peek() == Some(b']') { self.i += 1; return; } self.skip_val(); self.ws(); if self.peek() == Some(b',') { self.i += 1; } } }
 
-    fn str_val(&mut self) -> &'a str {
-        self.ws(); self.i += 1;
-        let start = self.i;
-        while self.i < self.s.len() && self.s[self.i] != b'"' { if self.s[self.i] == b'\\' { self.i += 1; } self.i += 1; }
-        let end = self.i; self.i += 1;
-        std::str::from_utf8(&self.s[start..end]).unwrap_or("")
+    fn skip_object(&mut self) {
+        loop {
+            self.skip_whitespace();
+            if self.peek() == Some(b'}') {
+                self.advance();
+                return;
+            }
+            self.skip_value(); // key
+            self.skip_whitespace();
+            if self.peek() == Some(b':') {
+                self.advance();
+                self.skip_value(); // value
+            }
+            self.skip_whitespace();
+            if self.peek() == Some(b',') {
+                self.advance();
+            }
+        }
     }
-    fn num_f64(&mut self) -> f64 { self.ws(); let p = self.i; while self.i < self.s.len() && matches!(self.s[self.i], b'-' | b'0'..=b'9' | b'.' | b'e' | b'E' | b'+') { self.i += 1; } std::str::from_utf8(&self.s[p..self.i]).unwrap_or("0").parse().unwrap_or(0.0) }
-    fn num_u64(&mut self) -> u64 { self.ws(); let p = self.i; while self.i < self.s.len() && matches!(self.s[self.i], b'0'..=b'9') { self.i += 1; } std::str::from_utf8(&self.s[p..self.i]).unwrap_or("0").parse().unwrap_or(0) }
-    fn num_u32(&mut self) -> u32 { self.ws(); let p = self.i; while self.i < self.s.len() && matches!(self.s[self.i], b'0'..=b'9') { self.i += 1; } std::str::from_utf8(&self.s[p..self.i]).unwrap_or("0").parse().unwrap_or(0) }
-    fn num_i64(&mut self) -> i64 { self.ws(); let p = self.i; while self.i < self.s.len() && matches!(self.s[self.i], b'-' | b'0'..=b'9') { self.i += 1; } std::str::from_utf8(&self.s[p..self.i]).unwrap_or("0").parse().unwrap_or(-1) }
-    fn bool_val(&mut self) -> bool { self.ws(); let v = self.s[self.i] == b't'; self.i += if v { 4 } else { 5 }; v }
-    fn arr_len(&mut self) -> u32 { self.ws(); self.i += 1; let mut n = 0u32; loop { self.ws(); if self.peek() == Some(b']') { self.i += 1; return n; } self.skip_val(); n += 1; self.ws(); if self.peek() == Some(b',') { self.i += 1; } } }
-    fn is_null(&mut self) -> bool { self.ws(); if self.s.get(self.i..self.i+4) == Some(b"null") { self.i += 4; true } else { false } }
+
+    fn skip_array(&mut self) {
+        loop {
+            self.skip_whitespace();
+            if self.peek() == Some(b']') {
+                self.advance();
+                return;
+            }
+            self.skip_value();
+            self.skip_whitespace();
+            if self.peek() == Some(b',') {
+                self.advance();
+            }
+        }
+    }
 }
+
+fn parse_input(json: &str) -> ParsedInput {
+    let mut p = JsonParser::new(json);
+    p.skip_whitespace();
+    if p.peek() != Some(b'{') {
+        return ParsedInput::default();
+    }
+    p.advance();
+
+    let mut input = ParsedInput::default();
+
+    loop {
+        p.skip_whitespace();
+        match p.peek() {
+            None => break,
+            Some(b'}') => break,
+            Some(b'"') => {
+                let key = p.read_string();
+                p.skip_whitespace();
+                if p.peek() == Some(b':') {
+                    p.advance();
+                } else {
+                    continue;
+                }
+                parse_field(&mut p, &mut input, key);
+                p.skip_whitespace();
+                if p.peek() == Some(b',') {
+                    p.advance();
+                }
+            }
+            _ => {
+                p.skip_value();
+                p.skip_whitespace();
+                if p.peek() == Some(b',') {
+                    p.advance();
+                }
+            }
+        }
+    }
+
+    input
+}
+
+fn parse_field(p: &mut JsonParser, input: &mut ParsedInput, key: &str) {
+    match key {
+        "agent_state" => {
+            if !p.is_null() { input.agent_state = p.read_string().to_string(); }
+        }
+        "artifact_count" => input.artifact_count = p.read_u32(),
+        "task_count" => input.task_count = p.read_u32(),
+        "terminal_width" => input.terminal_width = p.read_u32(),
+        "cwd" => {
+            if !p.is_null() { input.working_dir = p.read_string().to_string(); }
+        }
+        "conversation_id" => {
+            if !p.is_null() { input.conversation_id = p.read_string().to_string(); }
+        }
+        "version" => {
+            if !p.is_null() { input.version = p.read_string().to_string(); }
+        }
+        "plan_tier" => {
+            if !p.is_null() { input.plan_tier = p.read_string().to_string(); }
+        }
+        "email" => {
+            if !p.is_null() { input.email = p.read_string().to_string(); }
+        }
+        "subagents" => {
+            if p.is_null() {
+                input.subagent_count = 0;
+            } else {
+                input.subagent_count = p.read_array_len();
+            }
+        }
+        "context_window" => parse_context_window(p, input),
+        "sandbox" => parse_sandbox(p, input),
+        "model" => parse_model(p, input),
+        "quota" => parse_quota(p, input),
+        _ => { p.skip_value(); }
+    }
+}
+
+fn parse_context_window(p: &mut JsonParser, input: &mut ParsedInput) {
+    p.skip_whitespace();
+    p.advance(); // skip '{'
+    loop {
+        p.skip_whitespace();
+        if p.peek() == Some(b'}') { p.advance(); break; }
+        let key = p.read_string();
+        p.skip_whitespace();
+        if p.peek() == Some(b':') { p.advance(); }
+        match key {
+            "used_percentage" => input.used_percentage = p.read_f64(),
+            "total_input_tokens" => input.total_input_tokens = p.read_u64(),
+            "total_output_tokens" => input.total_output_tokens = p.read_u64(),
+            "context_window_size" => input.context_window_size = p.read_u64(),
+            "current_usage" => {
+                p.skip_whitespace();
+                p.advance(); // skip '{'
+                loop {
+                    p.skip_whitespace();
+                    if p.peek() == Some(b'}') { p.advance(); break; }
+                    match p.read_string() {
+                        "input_tokens" => { p.skip_whitespace(); p.advance(); input.turn_input_tokens = p.read_u64(); }
+                        "output_tokens" => { p.skip_whitespace(); p.advance(); input.turn_output_tokens = p.read_u64(); }
+                        _ => { p.skip_whitespace(); p.advance(); p.skip_value(); }
+                    }
+                    p.skip_whitespace();
+                    if p.peek() == Some(b',') { p.advance(); }
+                }
+            }
+            _ => { p.skip_value(); }
+        }
+        p.skip_whitespace();
+        if p.peek() == Some(b',') { p.advance(); }
+    }
+}
+
+fn parse_sandbox(p: &mut JsonParser, input: &mut ParsedInput) {
+    p.skip_whitespace();
+    p.advance(); // skip '{'
+    loop {
+        p.skip_whitespace();
+        if p.peek() == Some(b'}') { p.advance(); break; }
+        match p.read_string() {
+            "enabled" => { p.skip_whitespace(); p.advance(); input.sandbox_enabled = p.read_bool(); }
+            "allow_network" => { p.skip_whitespace(); p.advance(); input.sandbox_allow_network = p.read_bool(); }
+            _ => { p.skip_whitespace(); p.advance(); p.skip_value(); }
+        }
+        p.skip_whitespace();
+        if p.peek() == Some(b',') { p.advance(); }
+    }
+}
+
+fn parse_model(p: &mut JsonParser, input: &mut ParsedInput) {
+    p.skip_whitespace();
+    p.advance(); // skip '{'
+    loop {
+        p.skip_whitespace();
+        if p.peek() == Some(b'}') { p.advance(); break; }
+        match p.read_string() {
+            "id" => { p.skip_whitespace(); p.advance(); if !p.is_null() { input.model_id = p.read_string().to_string(); } }
+            "display_name" => { p.skip_whitespace(); p.advance(); if !p.is_null() { input.model_display_name = p.read_string().to_string(); } }
+            _ => { p.skip_whitespace(); p.advance(); p.skip_value(); }
+        }
+        p.skip_whitespace();
+        if p.peek() == Some(b',') { p.advance(); }
+    }
+}
+
+fn parse_quota(p: &mut JsonParser, input: &mut ParsedInput) {
+    p.skip_whitespace();
+    p.advance(); // skip '{'
+    loop {
+        p.skip_whitespace();
+        if p.peek() == Some(b'}') { p.advance(); break; }
+        let quota_key = p.read_string().to_string();
+        p.skip_whitespace();
+        p.advance(); // skip ':'
+        p.skip_whitespace();
+        p.advance(); // skip '{'
+        let mut fraction = -1.0f64;
+        let mut reset_sec = -1i64;
+        loop {
+            p.skip_whitespace();
+            if p.peek() == Some(b'}') { p.advance(); break; }
+            let entry_key = p.read_string();
+            p.skip_whitespace();
+            p.advance(); // skip ':'
+            match entry_key {
+                "remaining_fraction" => { if !p.is_null() { fraction = p.read_f64(); } }
+                "reset_in_seconds" => { if !p.is_null() { reset_sec = p.read_i64(); } }
+                _ => { p.skip_value(); }
+            }
+            p.skip_whitespace();
+            if p.peek() == Some(b',') { p.advance(); }
+        }
+        let pct = if fraction >= 0.0 { (fraction * 1000.0).round() / 10.0 } else { -1.0 };
+        match quota_key.as_str() {
+            "gemini-5h" => { input.gemini_5h_pct = pct; input.gemini_5h_reset = reset_sec; }
+            "gemini-weekly" => { input.gemini_weekly_pct = pct; input.gemini_weekly_reset = reset_sec; }
+            "3p-5h" => { input.third_party_5h_pct = pct; input.third_party_5h_reset = reset_sec; }
+            "3p-weekly" => { input.third_party_weekly_pct = pct; input.third_party_weekly_reset = reset_sec; }
+            _ => {}
+        }
+        p.skip_whitespace();
+        if p.peek() == Some(b',') { p.advance(); }
+    }
+}
+
+impl Default for ParsedInput {
+    fn default() -> Self {
+        ParsedInput {
+            agent_state: "idle".into(),
+            used_percentage: 0.0,
+            sandbox_enabled: false,
+            sandbox_allow_network: false,
+            artifact_count: 0,
+            subagent_count: 0,
+            task_count: 0,
+            model_id: String::new(),
+            model_display_name: String::new(),
+            terminal_width: 80,
+            working_dir: String::new(),
+            conversation_id: String::new(),
+            version: String::new(),
+            plan_tier: String::new(),
+            email: String::new(),
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+            context_window_size: 0,
+            turn_input_tokens: 0,
+            turn_output_tokens: 0,
+            gemini_5h_pct: -1.0,
+            gemini_weekly_pct: -1.0,
+            third_party_5h_pct: -1.0,
+            third_party_weekly_pct: -1.0,
+            gemini_5h_reset: -1,
+            gemini_weekly_reset: -1,
+            third_party_5h_reset: -1,
+            third_party_weekly_reset: -1,
+        }
+    }
+}
+
+// ─── Formatting Helpers ───────────────────────────────────────────────────
 
 fn human_format(num: u64) -> String {
     if num >= 1_000_000 {
@@ -71,397 +521,656 @@ fn human_format(num: u64) -> String {
     } else if num >= 1000 {
         format!("{}.{}K", num / 1000, (num % 1000) / 100)
     } else {
-        format!("{}", num)
+        num.to_string()
     }
 }
 
 fn format_reset_time(sec: i64) -> String {
-    if sec <= 0 { return String::new(); }
+    if sec <= 0 {
+        return String::new();
+    }
     let days = sec / 86400;
     let rem = sec % 86400;
     let hours = rem / 3600;
     let rem = rem % 3600;
-    let mins = rem / 60;
-    if days > 0 { if hours > 0 { format!("{}d {}h", days, hours) } else { format!("{}d", days) } }
-    else if hours > 0 { if mins > 0 { format!("{}h {}m", hours, mins) } else { format!("{}h", hours) } }
-    else if mins > 0 { format!("{}m", mins) }
-    else { "<1m".to_string() }
+    let minutes = rem / 60;
+
+    if days > 0 {
+        if hours > 0 { format!("{days}d {hours}h") } else { format!("{days}d") }
+    } else if hours > 0 {
+        if minutes > 0 { format!("{hours}h {minutes}m") } else { format!("{hours}h") }
+    } else if minutes > 0 {
+        format!("{minutes}m")
+    } else {
+        "<1m".to_string()
+    }
 }
 
 fn shorten_path(path: &str) -> String {
-    if path.is_empty() { return String::new(); }
+    if path.is_empty() {
+        return String::new();
+    }
     let home = env::var("HOME").unwrap_or_default();
-    let p = if !home.is_empty() && path.starts_with(&home) { path.replacen(&home, "~", 1) } else { path.to_string() };
-    if p.len() > 25 { let base = std::path::Path::new(p.as_str()).file_name().and_then(|s| s.to_str()).unwrap_or(""); format!("...{}", base) }
-    else { p }
+    let relative = if !home.is_empty() && path.starts_with(&home) {
+        path.replacen(&home, "~", 1)
+    } else {
+        path.to_string()
+    };
+    if relative.len() > 25 {
+        if let Some(name) = std::path::Path::new(&relative).file_name().and_then(|s| s.to_str()) {
+            return format!("...{name}");
+        }
+    }
+    relative
 }
 
-fn visible_len(s: &str) -> usize {
-    let mut n = 0;
+fn visible_length(s: &str) -> usize {
+    let mut count = 0;
     let mut chars = s.chars();
     while let Some(c) = chars.next() {
-        if c == '\x1b' { while let Some(d) = chars.next() { if d == 'm' { break; } } }
-        else { n += 1; }
+        if c == '\x1b' {
+            while let Some(d) = chars.next() {
+                if d == 'm' {
+                    break;
+                }
+            }
+        } else {
+            count += 1;
+        }
     }
-    n
+    count
 }
 
+// ─── System Info Helpers ──────────────────────────────────────────────────
+
 fn hostname() -> String {
-    Command::new("hostname").output().ok().and_then(|o| String::from_utf8(o.stdout).ok()).map(|s| s.trim().to_string()).unwrap_or_default()
+    Command::new("hostname")
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default()
 }
+
 fn tailscale_ip() -> String {
     #[cfg(target_os = "linux")]
     {
-        Command::new("ip").args(["-4", "addr", "show", "dev", "tailscale0"]).output().ok()
+        Command::new("ip")
+            .args(["-4", "addr", "show", "dev", "tailscale0"])
+            .output()
+            .ok()
             .and_then(|o| String::from_utf8(o.stdout).ok())
-            .and_then(|s| s.lines().find_map(|l| {
-                let t = l.trim(); if t.starts_with("inet ") { t.split_whitespace().nth(1).map(|x| x.split('/').next().unwrap_or("").to_string()) } else { None }
-            })).unwrap_or_default()
+            .and_then(|output| {
+                output.lines().find_map(|line| {
+                    let trimmed = line.trim();
+                    if trimmed.starts_with("inet ") {
+                        trimmed
+                            .split_whitespace()
+                            .nth(1)
+                            .map(|addr| addr.split('/').next().unwrap_or("").to_string())
+                    } else {
+                        None
+                    }
+                })
+            })
+            .unwrap_or_default()
     }
     #[cfg(not(target_os = "linux"))]
-    { String::new() }
+    {
+        String::new()
+    }
 }
+
 fn power_status() -> (bool, Option<u8>) {
     #[cfg(target_os = "linux")]
     {
-        let ac = std::fs::read_to_string("/sys/class/power_supply/ACAD/online").ok().and_then(|s| s.trim().parse::<u8>().ok()).unwrap_or(1);
-        let bat = std::fs::read_to_string("/sys/class/power_supply/BAT1/capacity").ok().and_then(|s| s.trim().parse::<u8>().ok());
-        (ac == 0, bat)
+        let ac = std::fs::read_to_string("/sys/class/power_supply/ACAD/online")
+            .ok()
+            .and_then(|s| s.trim().parse::<u8>().ok())
+            .unwrap_or(1);
+        let battery = std::fs::read_to_string("/sys/class/power_supply/BAT1/capacity")
+            .ok()
+            .and_then(|s| s.trim().parse::<u8>().ok());
+        (ac == 0, battery)
     }
     #[cfg(not(target_os = "linux"))]
-    (false, None)
-}
-fn git_info(cwd: &str) -> (String, String, bool) {
-    let d = if cwd.is_empty() { "." } else { cwd };
-    let br = Command::new("git").args(["-C", d, "rev-parse", "--abbrev-ref", "HEAD"]).output().ok()
-        .and_then(|o| String::from_utf8(o.stdout).ok()).map(|s| s.trim().to_string()).unwrap_or_default();
-    if br.is_empty() { return (String::new(), String::new(), false); }
-    let dirty = Command::new("git").args(["-C", d, "status", "--porcelain"]).output().ok()
-        .and_then(|o| String::from_utf8(o.stdout).ok()).map(|s| !s.trim().is_empty()).unwrap_or(false);
-    ("git".to_string(), br, dirty)
+    {
+        (false, None)
+    }
 }
 
-fn make_quota_bar(val: f64, label: &str, bar_color: &str, reset_sec: i64, use_classic: bool, icon_reset: &str) -> String {
-    let sep = if use_classic { format!("{FG_GRAY} · {R}") } else { format!("{FG_GRAY}| {R}") };
-    if val < -0.5 {
-        let bar: String = (0..20).map(|_| if use_classic { "·" } else { "░" }).collect();
-        return format!("{sep}{FG_BRIGHT_WHITE}{B}{label}{R} {FG_GRAY}{bar} N/A{R}");
+fn git_info(working_dir: &str) -> (String, String, bool) {
+    let dir = if working_dir.is_empty() { "." } else { working_dir };
+
+    let branch = Command::new("git")
+        .args(["-C", dir, "rev-parse", "--abbrev-ref", "HEAD"])
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
+
+    if branch.is_empty() {
+        return (String::new(), String::new(), false);
     }
-    let vi = val as u32;
-    let tc = if vi < 20 { FG_BRIGHT_RED } else if vi < 50 { FG_BRIGHT_YELLOW } else { FG_BRIGHT_GREEN };
-    let filled = vi * 20 / 100;
-    let rem = (vi * 20) % 100;
-    let qb = format!("{bar_color}█{R}");
-    let q75 = format!("{bar_color}▓{R}{FG_GRAY}");
-    let q50 = format!("{bar_color}▒{R}{FG_GRAY}");
-    let q25 = format!("{bar_color}░{R}{FG_GRAY}");
-    let qe = format!("{FG_GRAY}░{R}");
+
+    let dirty = Command::new("git")
+        .args(["-C", dir, "status", "--porcelain"])
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| !s.trim().is_empty())
+        .unwrap_or(false);
+
+    ("git".to_string(), branch, dirty)
+}
+
+// ─── Bar Drawing ──────────────────────────────────────────────────────────
+
+fn build_quota_bar(
+    remaining_pct: f64,
+    label: &str,
+    bar_color: &str,
+    reset_sec: i64,
+    use_classic: bool,
+    reset_icon: &str,
+) -> String {
+    let separator = if use_classic {
+        format!("{ANSI_GRAY} · {RESET}")
+    } else {
+        format!("{ANSI_GRAY}| {RESET}")
+    };
+
+    if remaining_pct < -0.5 {
+        let bar_empty: String = (0..20)
+            .map(|_| if use_classic { "·" } else { "░" })
+            .collect();
+        return format!(
+            "{separator}{ANSI_BRIGHT_WHITE}{BOLD}{label}{RESET} {ANSI_GRAY}{bar_empty} N/A{RESET}"
+        );
+    }
+
+    let pct_int = remaining_pct as u32;
+    let text_color = match pct_int {
+        0..=19 => ANSI_BRIGHT_RED,
+        20..=49 => ANSI_BRIGHT_YELLOW,
+        _ => ANSI_BRIGHT_GREEN,
+    };
+
+    let filled = pct_int * 20 / 100;
+    let remainder = (pct_int * 20) % 100;
+
+    let block_full = format!("{bar_color}█{RESET}");
+    let block_75 = format!("{bar_color}▓{RESET}{ANSI_GRAY}");
+    let block_50 = format!("{bar_color}▒{RESET}{ANSI_GRAY}");
+    let block_25 = format!("{bar_color}░{RESET}{ANSI_GRAY}");
+    let block_empty = format!("{ANSI_GRAY}░{RESET}");
+
     let mut bar = String::with_capacity(160);
     for i in 0..20u32 {
-        if i < filled { if use_classic { bar.push('█'); } else { bar.push_str(&qb); } }
-        else if i == filled {
-            if use_classic { bar.push_str(match rem { 75.. => "▓", 50.. => "▒", 25.. => "░", _ => "·" }); }
-            else { bar.push_str(match rem { 75.. => &q75, 50.. => &q50, 25.. => &q25, _ => &qe }); }
-        } else { if use_classic { bar.push('·'); } else { bar.push_str(&qe); } }
+        if i < filled {
+            if use_classic {
+                bar.push('█');
+            } else {
+                bar.push_str(&block_full);
+            }
+        } else if i == filled {
+            if use_classic {
+                bar.push_str(match remainder {
+                    75.. => "▓",
+                    50.. => "▒",
+                    25.. => "░",
+                    _ => "·",
+                });
+            } else {
+                bar.push_str(match remainder {
+                    75.. => &block_75,
+                    50.. => &block_50,
+                    25.. => &block_25,
+                    _ => &block_empty,
+                });
+            }
+        } else {
+            if use_classic {
+                bar.push('·');
+            } else {
+                bar.push_str(&block_empty);
+            }
+        }
     }
-    let rst = if reset_sec > 0 { format!(" {icon_reset} {}", format_reset_time(reset_sec)) } else { String::new() };
-    if use_classic { format!("{sep}{FG_BRIGHT_WHITE}{B}{label}{R} {bar_color}{bar}{R} {tc}{vi}%{R}{rst}") }
-    else { format!("{sep}{FG_BRIGHT_WHITE}{B}{label}{R} {bar} {tc}{vi}%{R}{rst}") }
+
+    let reset_label = if reset_sec > 0 {
+        format!(" {reset_icon} {}", format_reset_time(reset_sec))
+    } else {
+        String::new()
+    };
+
+    if use_classic {
+        format!(
+            "{separator}{ANSI_BRIGHT_WHITE}{BOLD}{label}{RESET} {bar_color}{bar}{RESET} {text_color}{pct_int}%{RESET}{reset_label}"
+        )
+    } else {
+        format!(
+            "{separator}{ANSI_BRIGHT_WHITE}{BOLD}{label}{RESET} {bar} {text_color}{pct_int}%{RESET}{reset_label}"
+        )
+    }
 }
 
 fn print_right_aligned(left: &str, right: &str, total_cols: u32) {
-    let lv = visible_len(left); let rv = visible_len(right);
-    let pad = if total_cols as usize > lv + rv { total_cols as usize - lv - rv } else { 1 };
-    print!("{left}"); for _ in 0..pad { print!(" "); } println!("{right}");
+    let left_vis = visible_length(left);
+    let right_vis = visible_length(right);
+    let padding = if total_cols as usize > left_vis + right_vis {
+        total_cols as usize - left_vis - right_vis
+    } else {
+        1
+    };
+    print!("{left}");
+    for _ in 0..padding {
+        print!(" ");
+    }
+    println!("{right}");
 }
 
-fn main() {
-    let use_classic = env::args().any(|a| a == "--classic" || a == "--no-nerdfont" || a == "--compatibility");
-    let mut stdin = String::new();
-    io::stdin().read_to_string(&mut stdin).unwrap();
+// ─── Output Construction ──────────────────────────────────────────────────
 
-    let mut p = Parser::new(&stdin);
+struct View {
+    state_str: String,
+    version_str: String,
+    user_str: String,
+    host_str: String,
+    model_str: String,
+    dir_str: String,
+    vcs_str: String,
+    conv_str: String,
+    art_str: String,
+    sub_str: String,
+    task_str: String,
+    sandbox_str: String,
+    ctx_bar: String,
+    tok_wide: String,
+    tok_medium: String,
+    quota_str: String,
+    power_str: String,
+    model_short_str: String,
+}
 
-    // Parse top-level object
-    p.ws();
-    if p.peek() != Some(b'{') { return; }
-    p.i += 1;
+fn build_view(input: &ParsedInput, icons: &Icons, classic: bool) -> View {
+    let dot_l1 = &icons.dot_l1;
+    let dot_l2 = &icons.dot_l2;
 
-    // Default values
-    let mut state = "idle";
-    let mut used_pct = 0.0f64;
-    let mut sandbox_on = false;
-    let mut sandbox_net = false;
-    let mut artifacts = 0u32;
-    let mut subagents = 0u32;
-    let mut bg_tasks = 0u32;
-    let mut model_id = "";
-    let mut model_name = "";
-    let mut cols = 80u32;
-    let mut cwd = "";
-    let mut conv_id = "";
-    let mut cli_version = "";
-    let mut plan_tier = "";
-    let mut user_email = "";
-    let mut input_tokens = 0u64;
-    let mut output_tokens = 0u64;
-    let mut ctx_limit = 0u64;
-    let mut turn_input = 0u64;
-    let mut turn_output = 0u64;
-    let mut gemini_5h = -1.0f64;
-    let mut gemini_wk = -1.0f64;
-    let mut tp_5h = -1.0f64;
-    let mut tp_wk = -1.0f64;
-    let mut gemini_5h_r = -1i64;
-    let mut gemini_wk_r = -1i64;
-    let mut tp_5h_r = -1i64;
-    let mut tp_wk_r = -1i64;
-
-    loop {
-        p.ws();
-        match p.peek() {
-            None => break,
-            Some(b'}') => break,
-            Some(b'"') => {
-                let key = p.str_val();
-                p.ws();
-                if p.peek() == Some(b':') { p.i += 1; } else { continue; }
-                match key {
-                    "agent_state" => if !p.is_null() { state = p.str_val(); } else { state = "idle"; },
-                    "artifact_count" => artifacts = p.num_u32(),
-                    "task_count" => bg_tasks = p.num_u32(),
-                    "terminal_width" => cols = p.num_u32(),
-                    "cwd" => if !p.is_null() { cwd = p.str_val(); },
-                    "conversation_id" => if !p.is_null() { conv_id = p.str_val(); },
-                    "version" => if !p.is_null() { cli_version = p.str_val(); },
-                    "plan_tier" => if !p.is_null() { plan_tier = p.str_val(); },
-                    "email" => if !p.is_null() { user_email = p.str_val(); },
-                    "subagents" => if p.is_null() { subagents = 0; } else { subagents = p.arr_len(); },
-                    "context_window" => {
-                        p.ws(); p.i += 1; // {
-                        loop { p.ws(); if p.peek() == Some(b'}') { p.i += 1; break; }
-                            let ck = p.str_val(); p.ws(); p.i += 1; // :
-                            match ck {
-                                "used_percentage" => used_pct = p.num_f64(),
-                                "total_input_tokens" => input_tokens = p.num_u64(),
-                                "total_output_tokens" => output_tokens = p.num_u64(),
-                                "context_window_size" => ctx_limit = p.num_u64(),
-                                "current_usage" => {
-                                    p.ws(); p.i += 1; // {
-                                    loop { p.ws(); if p.peek() == Some(b'}') { p.i += 1; break; }
-                                        let uk = p.str_val(); p.ws(); p.i += 1; // :
-                                        match uk { "input_tokens" => turn_input = p.num_u64(), "output_tokens" => turn_output = p.num_u64(), _ => { p.skip_val(); } }
-                                        p.ws(); if p.peek() == Some(b',') { p.i += 1; }
-                                    }
-                                }
-                                _ => { p.skip_val(); }
-                            }
-                            p.ws(); if p.peek() == Some(b',') { p.i += 1; }
-                        }
-                    },
-                    "sandbox" => {
-                        p.ws(); p.i += 1; // {
-                        loop { p.ws(); if p.peek() == Some(b'}') { p.i += 1; break; }
-                            let sk = p.str_val(); p.ws(); p.i += 1; // :
-                            match sk { "enabled" => sandbox_on = p.bool_val(), "allow_network" => sandbox_net = p.bool_val(), _ => { p.skip_val(); } }
-                            p.ws(); if p.peek() == Some(b',') { p.i += 1; }
-                        }
-                    },
-                    "model" => {
-                        p.ws(); p.i += 1; // {
-                        loop { p.ws(); if p.peek() == Some(b'}') { p.i += 1; break; }
-                            let mk = p.str_val(); p.ws(); p.i += 1; // :
-                            match mk { "id" => if !p.is_null() { model_id = p.str_val(); }, "display_name" => if !p.is_null() { model_name = p.str_val(); }, _ => { p.skip_val(); } }
-                            p.ws(); if p.peek() == Some(b',') { p.i += 1; }
-                        }
-                    },
-                    "quota" => {
-                        p.ws(); p.i += 1; // {
-                        loop { p.ws(); if p.peek() == Some(b'}') { p.i += 1; break; }
-                            let qk = p.str_val(); p.ws(); p.i += 1; // :
-                            // Parse quota entry
-                            p.ws(); p.i += 1; // {
-                            let mut rf = -1.0f64; let mut ri = -1i64;
-                            loop { p.ws(); if p.peek() == Some(b'}') { p.i += 1; break; }
-                                let qek = p.str_val(); p.ws(); p.i += 1; // :
-                                match qek { "remaining_fraction" => { if !p.is_null() { rf = p.num_f64(); } }, "reset_in_seconds" => { if !p.is_null() { ri = p.num_i64(); } }, _ => { p.skip_val(); } }
-                                p.ws(); if p.peek() == Some(b',') { p.i += 1; }
-                            }
-                            match qk {
-                                "gemini-5h" => { gemini_5h = (rf * 1000.0).round() / 10.0; gemini_5h_r = ri; }
-                                "gemini-weekly" => { gemini_wk = (rf * 1000.0).round() / 10.0; gemini_wk_r = ri; }
-                                "3p-5h" => { tp_5h = (rf * 1000.0).round() / 10.0; tp_5h_r = ri; }
-                                "3p-weekly" => { tp_wk = (rf * 1000.0).round() / 10.0; tp_wk_r = ri; }
-                                _ => {}
-                            }
-                            p.ws(); if p.peek() == Some(b',') { p.i += 1; }
-                        }
-                    },
-                    _ => { p.skip_val(); }
-                }
-                p.ws(); if p.peek() == Some(b',') { p.i += 1; }
-            }
-            _ => { p.skip_val(); p.ws(); if p.peek() == Some(b',') { p.i += 1; } }
-        }
-    }
-
-    let model_disp = if !model_name.is_empty() { model_name } else { model_id };
-    let ctx_used = input_tokens + output_tokens;
-
-    let (q_5h, q_wk, q_5h_r, q_wk_r) =
-        if (gemini_5h >= 0.0) || (gemini_wk >= 0.0) { (gemini_5h, gemini_wk, gemini_5h_r, gemini_wk_r) }
-        else if (tp_5h >= 0.0) || (tp_wk >= 0.0) { (tp_5h, tp_wk, tp_5h_r, tp_wk_r) }
-        else { (-1.0, -1.0, -1, -1) };
-
-    // ─── Icons ────────────────────────────────────────────────────────────────
-    let dot_l1 = if use_classic { format!("{FG_GRAY} ╱ {R}") } else { format!("{FG_GRAY} | {R}") };
-    let dot_l2 = if use_classic { format!("{FG_GRAY} · {R}") } else { format!("{FG_GRAY} | {R}") };
-    let (icon_vcs, icon_model, icon_sn, icon_snn, icon_so, icon_cb, icon_art, icon_sub, icon_tsk, icon_dir, icon_conv, icon_ts, icon_rst, icon_ac, icon_bat) = if use_classic {
-        ("", "", "ON (net)", "ON (no-net)", "OFF", "ctx", "artifacts", "subagents", "tasks", "", "", "", "\u{231B}", "AC", "BAT")
+    let model_display = if !input.model_display_name.is_empty() {
+        &input.model_display_name
     } else {
-        ("\u{F418}", "\u{F400}", "\u{F0499}", "\u{F0D34}", "\u{F099C}", "\u{F134F}", "\u{F0F6}", "\u{F167A}", "\u{F0AE}", "\u{EA83}", "\u{F036A}", "\u{E26B}", "\u{231B}\u{FE0F}", "\u{F06A5}", "\u{1F50B}")
-    };
-    let (icon_rdy, icon_thk, icon_wrk, icon_ttl, icon_unk) = if use_classic { ("●", "◆", "⚙", "🔧", "\u{231B}") } else { ("\u{F192}", "\u{F07F7}", "\u{F423}", "\u{F425}", "\u{F252}") };
-
-    // ─── Computed ─────────────────────────────────────────────────────────────
-    let pct_int = used_pct as u32;
-    let pct_x10 = (used_pct * 10.0).round() as u32;
-    let pct_fmt = format!("{}.{}", pct_x10 / 10, pct_x10 % 10);
-    let itf = human_format(input_tokens); let otf = human_format(output_tokens);
-    let clf = human_format(ctx_limit); let cuf = human_format(ctx_used);
-    let tif = human_format(turn_input); let tof = human_format(turn_output);
-
-    // ─── State ────────────────────────────────────────────────────────────────
-    let state_str = match state {
-        "idle" => format!("{FG_BRIGHT_GREEN}{B} {icon_rdy} READY{R}"),
-        "thinking" => format!("{FG_BRIGHT_YELLOW}{B} {icon_thk} THINKING{R}"),
-        "working" => format!("{FG_BRIGHT_CYAN}{B} {icon_wrk} WORKING{R}"),
-        "tool_use" => format!("{FG_BRIGHT_MAGENTA}{B} {icon_ttl} TOOL{R}"),
-        other => format!("{FG_WHITE}{B} {icon_unk} {}{R}", other.to_uppercase()),
+        &input.model_id
     };
 
-    // ─── VCS ──────────────────────────────────────────────────────────────────
-    let (_, vcs_branch, vcs_dirty) = git_info(cwd);
-    let vcs = if vcs_branch.is_empty() { String::new() }
-    else if vcs_dirty {
-        if use_classic { format!("{dot_l1}{FG_BRIGHT_RED}{vcs_branch}{FG_BRIGHT_YELLOW}*{R}") }
-        else { format!("{dot_l1}{R}{FG_BRIGHT_RED}{icon_vcs} {vcs_branch}{FG_BRIGHT_YELLOW}*{R}") }
-    } else if use_classic { format!("{dot_l1}{FG_BRIGHT_BLUE}{vcs_branch}{R}") }
-    else { format!("{dot_l1}{R}{FG_BRIGHT_BLUE}{icon_vcs} {vcs_branch}{R}") };
+    let context_used = input.total_input_tokens + input.total_output_tokens;
 
-    // ─── Model ────────────────────────────────────────────────────────────────
-    let model_fmt = if !model_disp.is_empty() {
-        if use_classic { format!("{dot_l1}{FG_BRIGHT_MAGENTA}{I}{model_disp}{R}") }
-        else { format!("{dot_l1}{FG_BRIGHT_MAGENTA}{I}{icon_model} {model_disp}{R}") }
-    } else { String::new() };
+    // Active quota selection
+    let (active_5h, active_weekly, active_5h_reset, active_weekly_reset) =
+        if (input.gemini_5h_pct >= 0.0) || (input.gemini_weekly_pct >= 0.0) {
+            (
+                input.gemini_5h_pct, input.gemini_weekly_pct,
+                input.gemini_5h_reset, input.gemini_weekly_reset,
+            )
+        } else if (input.third_party_5h_pct >= 0.0) || (input.third_party_weekly_pct >= 0.0) {
+            (
+                input.third_party_5h_pct, input.third_party_weekly_pct,
+                input.third_party_5h_reset, input.third_party_weekly_reset,
+            )
+        } else {
+            (-1.0, -1.0, -1, -1)
+        };
 
-    // ─── Sandbox ──────────────────────────────────────────────────────────────
-    let sandbox = if sandbox_on {
-        if sandbox_net { format!("{FG_GREEN}{icon_sn} ON (net){R}") }
-        else { format!("{FG_GREEN}{icon_snn} ON (no-net){R}") }
-    } else if use_classic { format!("{FG_GRAY}sandbox off{R}") }
-    else { format!("{FG_RED}{icon_so} OFF{R}") };
+    // State indicator
+    let state_str = match input.agent_state.as_str() {
+        "idle" => format!("{ANSI_BRIGHT_GREEN}{BOLD} {} READY{RESET}", icons.state_ready),
+        "thinking" => format!("{ANSI_BRIGHT_YELLOW}{BOLD} {} THINKING{RESET}", icons.state_thinking),
+        "working" => format!("{ANSI_BRIGHT_CYAN}{BOLD} {} WORKING{RESET}", icons.state_working),
+        "tool_use" => format!("{ANSI_BRIGHT_MAGENTA}{BOLD} {} TOOL{RESET}", icons.state_tool),
+        other => format!("{ANSI_WHITE}{BOLD} {} {}{RESET}", icons.state_unknown, other.to_uppercase()),
+    };
 
-    // ─── Context Bar ──────────────────────────────────────────────────────────
-    let fill_color = if pct_int >= 90 { FG_BRIGHT_RED } else if pct_int >= 60 { FG_BRIGHT_YELLOW } else { FG_YELLOW };
-    let filled = pct_int * 20 / 100;
+    // Version
+    let version_str = if input.version.is_empty() {
+        String::new()
+    } else {
+        format!("{dot_l1}{ANSI_GRAY}v{}{RESET}", input.version)
+    };
+
+    // User info
+    let user_str = if !input.plan_tier.is_empty() || !input.email.is_empty() {
+        let info = if !input.plan_tier.is_empty() && !input.email.is_empty() {
+            format!("{} ({})", input.plan_tier, input.email)
+        } else if !input.plan_tier.is_empty() {
+            input.plan_tier.clone()
+        } else {
+            input.email.clone()
+        };
+        let truncated = if info.len() > 35 {
+            format!("{}...", &info[..32])
+        } else {
+            info
+        };
+        if classic {
+            format!("{dot_l1}{ANSI_GRAY}{truncated}{RESET}")
+        } else {
+            format!("{dot_l1}{ANSI_GRAY}{} {truncated}{RESET}", icons.user)
+        }
+    } else {
+        String::new()
+    };
+
+    // Host info
+    let host_name = hostname();
+    let ts_ip = tailscale_ip();
+    let host_str = if !host_name.is_empty() {
+        let details = if !ts_ip.is_empty() {
+            format!("{host_name} ({ts_ip})")
+        } else {
+            host_name
+        };
+        if classic {
+            format!("{dot_l1}{ANSI_BRIGHT_BLUE}{details}{RESET}")
+        } else {
+            format!("{dot_l1}{ANSI_BRIGHT_BLUE}{} {details}{RESET}", icons.host)
+        }
+    } else {
+        String::new()
+    };
+
+    // Power status
+    let power_str = {
+        let (on_battery, capacity) = power_status();
+        if on_battery {
+            if let Some(cap) = capacity {
+                if classic {
+                    format!("{dot_l2}{ANSI_BRIGHT_YELLOW}{}:{}%{RESET}", icons.battery, cap)
+                } else {
+                    format!("{dot_l2}{ANSI_BRIGHT_YELLOW}{} {}%{RESET}", icons.battery, cap)
+                }
+            } else {
+                format!("{dot_l2}{ANSI_BRIGHT_YELLOW}{}{RESET}", icons.battery)
+            }
+        } else {
+            if classic {
+                format!("{dot_l2}{ANSI_GREEN}{}{RESET}", icons.ac)
+            } else {
+                format!("{dot_l2}{ANSI_GREEN}{} AC{RESET}", icons.ac)
+            }
+        }
+    };
+
+    // Working directory
+    let cwd_short = shorten_path(&input.working_dir);
+    let dir_str = if !cwd_short.is_empty() {
+        if classic {
+            format!("{dot_l1}{ANSI_CYAN}{cwd_short}{RESET}")
+        } else {
+            format!("{dot_l1}{ANSI_CYAN}{} {cwd_short}{RESET}", icons.dir)
+        }
+    } else {
+        String::new()
+    };
+
+    // Conversation ID
+    let conv_str = if !input.conversation_id.is_empty() {
+        let len = 8.min(input.conversation_id.len());
+        if classic {
+            format!("{dot_l1}{ANSI_GRAY}{}{RESET}", &input.conversation_id[..len])
+        } else {
+            format!("{dot_l1}{ANSI_GRAY}{} {}{RESET}", icons.conversation, &input.conversation_id[..len])
+        }
+    } else {
+        String::new()
+    };
+
+    // VCS (from git directly)
+    let (_, vcs_branch, vcs_dirty) = git_info(&input.working_dir);
+    let vcs_str = if vcs_branch.is_empty() {
+        String::new()
+    } else if vcs_dirty {
+        if classic {
+            format!("{dot_l1}{ANSI_BRIGHT_RED}{vcs_branch}{ANSI_BRIGHT_YELLOW}*{RESET}")
+        } else {
+            format!("{dot_l1}{RESET}{ANSI_BRIGHT_RED}{} {vcs_branch}{ANSI_BRIGHT_YELLOW}*{RESET}", icons.vcs)
+        }
+    } else if classic {
+        format!("{dot_l1}{ANSI_BRIGHT_BLUE}{vcs_branch}{RESET}")
+    } else {
+        format!("{dot_l1}{RESET}{ANSI_BRIGHT_BLUE}{} {vcs_branch}{RESET}", icons.vcs)
+    };
+
+    // Model
+    let model_str = if !model_display.is_empty() {
+        if classic {
+            format!("{dot_l1}{ANSI_BRIGHT_MAGENTA}{ITALIC}{model_display}{RESET}")
+        } else {
+            format!("{dot_l1}{ANSI_BRIGHT_MAGENTA}{ITALIC}{} {model_display}{RESET}", icons.model)
+        }
+    } else {
+        String::new()
+    };
+
+    // Sandbox badge
+    let sandbox_str = if input.sandbox_enabled {
+        if input.sandbox_allow_network {
+            format!("{ANSI_GREEN}{} ON (net){RESET}", icons.sandbox_net)
+        } else {
+            format!("{ANSI_GREEN}{} ON (no-net){RESET}", icons.sandbox_nonet)
+        }
+    } else if classic {
+        format!("{ANSI_GRAY}sandbox off{RESET}")
+    } else {
+        format!("{ANSI_RED}{} OFF{RESET}", icons.sandbox_off)
+    };
+
+    // Context window bar (20 segments)
+    let pct_int = input.used_percentage as u32;
+    let pct_x10 = (input.used_percentage * 10.0).round() as u32;
+    let pct_display = format!("{}.{}", pct_x10 / 10, pct_x10 % 10);
+    let num_fmt = format!("{ANSI_BRIGHT_WHITE}{BOLD}{pct_display}%{RESET}");
+
+    let fill_color = if pct_int >= 90 {
+        ANSI_BRIGHT_RED
+    } else if pct_int >= 60 {
+        ANSI_BRIGHT_YELLOW
+    } else {
+        ANSI_YELLOW
+    };
+
+    let filled_segments = pct_int * 20 / 100;
     let rem = (pct_int * 20) % 100;
-    let fb = format!("{fill_color}█{R}");
-    let f75 = format!("{fill_color}▓{R}{FG_GRAY}");
-    let f50 = format!("{fill_color}▒{R}{FG_GRAY}");
-    let f25 = format!("{fill_color}░{R}{FG_GRAY}");
-    let fe = format!("{FG_GRAY}░{R}");
-    let ctx_bar = if use_classic {
+
+    let block_full = format!("{fill_color}█{RESET}");
+    let block_75 = format!("{fill_color}▓{RESET}{ANSI_GRAY}");
+    let block_50 = format!("{fill_color}▒{RESET}{ANSI_GRAY}");
+    let block_25 = format!("{fill_color}░{RESET}{ANSI_GRAY}");
+    let block_empty = format!("{ANSI_GRAY}░{RESET}");
+
+    let ctx_bar = if classic {
         let mut bar = String::with_capacity(40);
         for i in 0..20u32 {
-            if i < filled { bar.push('█'); }
-            else if i == filled { bar.push_str(match rem { 75.. => "▓", 50.. => "▒", 25.. => "░", _ => "·" }); }
-            else { bar.push('·'); }
+            if i < filled_segments {
+                bar.push('█');
+            } else if i == filled_segments {
+                bar.push_str(match rem {
+                    75.. => "▓",
+                    50.. => "▒",
+                    25.. => "░",
+                    _ => "·",
+                });
+            } else {
+                bar.push('·');
+            }
         }
-        format!("{FG_GRAY}ctx {fill_color}{bar} {FG_BRIGHT_WHITE}{B}{pct_fmt}%{R}")
+        format!("{ANSI_GRAY}ctx {fill_color}{bar} {num_fmt}")
     } else {
         let mut bar = String::with_capacity(160);
         for i in 0..20u32 {
-            if i < filled { bar.push_str(&fb); }
-            else if i == filled { bar.push_str(match rem { 75.. => &f75, 50.. => &f50, 25.. => &f25, _ => &fe }); }
-            else { bar.push_str(&fe); }
+            if i < filled_segments {
+                bar.push_str(&block_full);
+            } else if i == filled_segments {
+                bar.push_str(match rem {
+                    75.. => &block_75,
+                    50.. => &block_50,
+                    25.. => &block_25,
+                    _ => &block_empty,
+                });
+            } else {
+                bar.push_str(&block_empty);
+            }
         }
-        format!("{FG_YELLOW}{icon_cb}  {R}{bar} {FG_BRIGHT_WHITE}{B}{pct_fmt}%{R}")
+        format!("{ANSI_YELLOW}{}  {RESET}{bar} {num_fmt}", icons.context_bar)
     };
 
-    // ─── Stats ────────────────────────────────────────────────────────────────
-    let art_fmt = if use_classic { format!("{FG_GRAY}artifacts {FG_BRIGHT_WHITE}{B}{artifacts}{R}") }
-    else { format!("{FG_BLUE}{icon_art} {FG_BRIGHT_WHITE}{B}{artifacts}{R}") };
-    let sub_fmt = if use_classic { format!("{FG_GRAY}subagents {FG_BRIGHT_WHITE}{B}{subagents}{R}") }
-    else { format!("{FG_CYAN}{icon_sub} {FG_BRIGHT_WHITE}{B}{subagents}{R}") };
-    let bg_fmt = if use_classic { format!("{FG_GRAY}tasks {FG_BRIGHT_WHITE}{B}{bg_tasks}{R}") }
-    else { format!("{FG_MAGENTA}{icon_tsk} {FG_BRIGHT_WHITE}{B}{bg_tasks}{R}") };
-
-    // ─── Token Details ────────────────────────────────────────────────────────
-    let tok_wide = if ctx_used > 0 {
-        let ts = if turn_input > 0 || turn_output > 0 { format!(" | turn: +{}/{}", tif, tof) } else { String::new() };
-        if use_classic { format!(" ({}/{}){dot_l2}(total: {}/{}{})", cuf, clf, itf, otf, ts) }
-        else { format!(" ({}/{}){dot_l2}{FG_YELLOW}{icon_ts} {R} (total: {}/{}{})", cuf, clf, itf, otf, ts) }
-    } else { String::new() };
-    let tok_med = if ctx_used > 0 { format!(" ({}/{})", cuf, clf) } else { String::new() };
-
-    // ─── Quota ────────────────────────────────────────────────────────────────
-    let quota_fmt = if (q_5h >= 0.0) || (q_wk >= 0.0) {
-        format!("{} {}", make_quota_bar(q_5h, "5H", FG_BRIGHT_CYAN, q_5h_r, use_classic, icon_rst), make_quota_bar(q_wk, "7D", FG_BRIGHT_MAGENTA, q_wk_r, use_classic, icon_rst))
-    } else { String::new() };
-
-    // ─── Optional segments ────────────────────────────────────────────────────
-    let cli_ver_fmt = if cli_version.is_empty() { String::new() } else { format!("{dot_l1}{FG_GRAY}v{cli_version}{R}") };
-    let user_fmt = if !plan_tier.is_empty() || !user_email.is_empty() {
-        let ui = if !plan_tier.is_empty() && !user_email.is_empty() { format!("{} ({})", plan_tier, user_email) }
-        else if !plan_tier.is_empty() { plan_tier.to_string() } else { user_email.to_string() };
-        let t = if ui.len() > 35 { format!("{}...", &ui[..32]) } else { ui };
-        if use_classic { format!("{dot_l1}{FG_GRAY}{t}{R}") } else { format!("{dot_l1}{FG_GRAY}\u{F01EE} {t}{R}") }
-    } else { String::new() };
-    let host_name = hostname();
-    let ts_ip = tailscale_ip();
-    let host_fmt = if !host_name.is_empty() {
-        let hd = if !ts_ip.is_empty() { format!("{} ({})", host_name, ts_ip) } else { host_name };
-        if use_classic { format!("{dot_l1}{FG_BRIGHT_BLUE}{hd}{R}") } else { format!("{dot_l1}{FG_BRIGHT_BLUE}\u{F048B} {hd}{R}") }
-    } else { String::new() };
-    let power_fmt = {
-        let (on_bat, cap) = power_status();
-        if on_bat {
-            if let Some(c) = cap { if use_classic { format!("{dot_l2}{FG_BRIGHT_YELLOW}{icon_bat}:{}%{R}", c) } else { format!("{dot_l2}{FG_BRIGHT_YELLOW}{icon_bat} {}%{R}", c) } }
-            else { format!("{dot_l2}{FG_BRIGHT_YELLOW}{icon_bat}{R}") }
-        } else { if use_classic { format!("{dot_l2}{FG_GREEN}{icon_ac}{R}") } else { format!("{dot_l2}{FG_GREEN}{icon_ac} AC{R}") } }
+    // Stats
+    let art_str = if classic {
+        format!("{ANSI_GRAY}artifacts {ANSI_BRIGHT_WHITE}{BOLD}{}{RESET}", input.artifact_count)
+    } else {
+        format!("{ANSI_BLUE}{} {ANSI_BRIGHT_WHITE}{BOLD}{}{RESET}", icons.artifacts, input.artifact_count)
     };
-    let cwd_short = shorten_path(cwd);
-    let dir_fmt = if !cwd_short.is_empty() {
-        if use_classic { format!("{dot_l1}{FG_CYAN}{cwd_short}{R}") } else { format!("{dot_l1}{FG_CYAN}{icon_dir} {cwd_short}{R}") }
-    } else { String::new() };
-    let conv_fmt = if !conv_id.is_empty() {
-        let len = 8.min(conv_id.len());
-        if use_classic { format!("{dot_l1}{FG_GRAY}{}{R}", &conv_id[..len]) } else { format!("{dot_l1}{FG_GRAY}{icon_conv} {}{R}", &conv_id[..len]) }
-    } else { String::new() };
+    let sub_str = if classic {
+        format!("{ANSI_GRAY}subagents {ANSI_BRIGHT_WHITE}{BOLD}{}{RESET}", input.subagent_count)
+    } else {
+        format!("{ANSI_CYAN}{} {ANSI_BRIGHT_WHITE}{BOLD}{}{RESET}", icons.subagents, input.subagent_count)
+    };
+    let task_str = if classic {
+        format!("{ANSI_GRAY}tasks {ANSI_BRIGHT_WHITE}{BOLD}{}{RESET}", input.task_count)
+    } else {
+        format!("{ANSI_MAGENTA}{} {ANSI_BRIGHT_WHITE}{BOLD}{}{RESET}", icons.tasks, input.task_count)
+    };
 
-    // ─── Output Assembly ──────────────────────────────────────────────────────
+    // Token details
+    let itf = human_format(input.total_input_tokens);
+    let otf = human_format(input.total_output_tokens);
+    let clf = human_format(input.context_window_size);
+    let cuf = human_format(context_used);
+    let tif = human_format(input.turn_input_tokens);
+    let tof = human_format(input.turn_output_tokens);
+
+    let tok_wide = if context_used > 0 {
+        let turn_info = if input.turn_input_tokens > 0 || input.turn_output_tokens > 0 {
+            format!(" | turn: +{tif}/{tof}")
+        } else {
+            String::new()
+        };
+        if classic {
+            format!(" ({cuf}/{clf}){dot_l2}(total: {itf}/{otf}{turn_info})")
+        } else {
+            format!(" ({cuf}/{clf}){dot_l2}{ANSI_YELLOW}{} {RESET} (total: {itf}/{otf}{turn_info})", icons.token_sum)
+        }
+    } else {
+        String::new()
+    };
+
+    let tok_medium = if context_used > 0 {
+        format!(" ({cuf}/{clf})")
+    } else {
+        String::new()
+    };
+
+    // Quota
+    let quota_str = if (active_5h >= 0.0) || (active_weekly >= 0.0) {
+        format!(
+            "{} {}",
+            build_quota_bar(active_5h, "5H", ANSI_BRIGHT_CYAN, active_5h_reset, classic, icons.reset),
+            build_quota_bar(active_weekly, "7D", ANSI_BRIGHT_MAGENTA, active_weekly_reset, classic, icons.reset),
+        )
+    } else {
+        String::new()
+    };
+
+    // Model short (for narrow layout)
+    let model_short_str = if !model_display.is_empty() {
+        let max_len = 12.min(model_display.len());
+        if classic {
+            format!("{ANSI_GRAY} ╱ {ANSI_BRIGHT_MAGENTA}{}{RESET}", &model_display[..max_len])
+        } else {
+            format!("{ANSI_GRAY} ╱ {ANSI_BRIGHT_MAGENTA}{} {}{RESET}", icons.model, &model_display[..max_len])
+        }
+    } else {
+        String::new()
+    };
+
+    View {
+        state_str, version_str, user_str, host_str, model_str, dir_str,
+        vcs_str, conv_str, art_str, sub_str, task_str, sandbox_str,
+        ctx_bar, tok_wide, tok_medium, quota_str, power_str, model_short_str,
+    }
+}
+
+// ─── Entry Point ──────────────────────────────────────────────────────────
+
+fn main() {
+    let use_classic = env::args().any(|arg| {
+        arg == "--classic" || arg == "--no-nerdfont" || arg == "--compatibility"
+    });
+
+    let mut stdin = String::new();
+    io::stdin().read_to_string(&mut stdin).unwrap();
+
+    let input = parse_input(&stdin);
+    let icons = select_icons(use_classic);
+    let view = build_view(&input, &icons, use_classic);
+    let cols = input.terminal_width;
+
+    let dot_l2 = &icons.dot_l2;
+    let quota_has_data = !view.quota_str.is_empty();
+
     if cols >= 180 {
-        let line1 = format!("{state_str}{cli_ver_fmt}{user_fmt}{host_fmt}{model_fmt}{dir_fmt}{vcs}{conv_fmt}");
-        let line2 = if !quota_fmt.is_empty() {
-            format!("{art_fmt}{dot_l2}{sub_fmt}{dot_l2}{bg_fmt}{dot_l2}{sandbox}{dot_l2}{ctx_bar}{tok_wide}{quota_fmt}{power_fmt}")
-        } else { format!("{art_fmt}{dot_l2}{sub_fmt}{dot_l2}{bg_fmt}{dot_l2}{sandbox}{dot_l2}{ctx_bar}{tok_wide}{power_fmt}") };
+        let line1 = format!(
+            "{}{}{}{}{}{}{}{}",
+            view.state_str, view.version_str, view.user_str, view.host_str,
+            view.model_str, view.dir_str, view.vcs_str, view.conv_str,
+        );
+        let line2 = if quota_has_data {
+            format!(
+                "{}{dot_l2}{}{dot_l2}{}{dot_l2}{}{dot_l2}{}{}{}{}",
+                view.art_str, view.sub_str, view.task_str, view.sandbox_str,
+                view.ctx_bar, view.tok_wide, view.quota_str, view.power_str,
+            )
+        } else {
+            format!(
+                "{}{dot_l2}{}{dot_l2}{}{dot_l2}{}{dot_l2}{}{}{}",
+                view.art_str, view.sub_str, view.task_str, view.sandbox_str,
+                view.ctx_bar, view.tok_wide, view.power_str,
+            )
+        };
         print_right_aligned(&line1, &line2, cols);
     } else if cols >= 90 {
-        let line1 = format!("{state_str}{cli_ver_fmt}{user_fmt}{host_fmt}{model_fmt}{dir_fmt}{vcs}");
-        let line2 = if !quota_fmt.is_empty() {
-            format!(" {ctx_bar}{tok_med}{dot_l2}{art_fmt}{dot_l2}{sub_fmt}{dot_l2}{bg_fmt}{dot_l2}{sandbox}{quota_fmt}{power_fmt}")
-        } else { format!(" {ctx_bar}{tok_med}{dot_l2}{art_fmt}{dot_l2}{sub_fmt}{dot_l2}{bg_fmt}{dot_l2}{sandbox}{power_fmt}") };
-        println!("{FG_GRAY}╭─{R}{line1}");
-        println!("{FG_GRAY}╰─{R}{line2}");
+        let line1 = format!(
+            "{}{}{}{}{}{}{}",
+            view.state_str, view.version_str, view.user_str, view.host_str,
+            view.model_str, view.dir_str, view.vcs_str,
+        );
+        let line2 = if quota_has_data {
+            format!(
+                " {}{}{dot_l2}{}{dot_l2}{}{dot_l2}{}{dot_l2}{}{}{}",
+                view.ctx_bar, view.tok_medium, view.art_str, view.sub_str,
+                view.task_str, view.sandbox_str, view.quota_str, view.power_str,
+            )
+        } else {
+            format!(
+                " {}{}{dot_l2}{}{dot_l2}{}{dot_l2}{}{dot_l2}{}{}",
+                view.ctx_bar, view.tok_medium, view.art_str, view.sub_str,
+                view.task_str, view.sandbox_str, view.power_str,
+            )
+        };
+        println!("{ANSI_GRAY}╭─{RESET}{line1}");
+        println!("{ANSI_GRAY}╰─{RESET}{line2}");
     } else {
-        let model_short = if !model_disp.is_empty() {
-            let ml = 12.min(model_disp.len());
-            if use_classic { format!("{FG_GRAY} ╱ {FG_BRIGHT_MAGENTA}{}{R}", &model_disp[..ml]) }
-            else { format!("{FG_GRAY} ╱ {FG_BRIGHT_MAGENTA}{icon_model} {}{R}", &model_disp[..ml]) }
-        } else { String::new() };
-        println!("{state_str}{model_short}");
-        if !quota_fmt.is_empty() { println!("{ctx_bar}{dot_l2}{bg_fmt}{quota_fmt}{power_fmt}"); }
-        else { println!("{ctx_bar}{dot_l2}{bg_fmt}{power_fmt}"); }
+        println!("{}{}", view.state_str, view.model_short_str);
+        if quota_has_data {
+            println!(
+                "{}{dot_l2}{}{}{}",
+                view.ctx_bar, view.task_str, view.quota_str, view.power_str,
+            );
+        } else {
+            println!(
+                "{}{dot_l2}{}{}",
+                view.ctx_bar, view.task_str, view.power_str,
+            );
+        }
     }
 }
