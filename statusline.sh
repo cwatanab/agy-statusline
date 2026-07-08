@@ -232,23 +232,6 @@ if [ -n "$PLAN_TIER" ] || [ -n "$USER_EMAIL" ]; then
   fi
 fi
 
-# Get hostname and Tailscale IP
-HOST_NAME=$(hostname 2>/dev/null || echo "")
-TS_IP=$(ip -4 addr show dev tailscale0 2>/dev/null | grep -o 'inet [0-9.]*' | cut -d' ' -f2 || echo "")
-
-HOST_FMT=""
-if [ -n "$HOST_NAME" ]; then
-  host_details="$HOST_NAME"
-  if [ -n "$TS_IP" ]; then
-    host_details="${HOST_NAME} (${TS_IP})"
-  fi
-  if [ "$USE_CLASSIC_ICONS" = "true" ]; then
-    HOST_FMT="${DOT_L1}${FG_BRIGHT_BLUE}${host_details}${R}"
-  else
-    HOST_FMT="${DOT_L1}${FG_BRIGHT_BLUE}󰒋 ${host_details}${R}"
-  fi
-fi
-
 # Get Power Status (Resilience check)
 POWER_FMT=""
 if [ -f /sys/class/power_supply/ACAD/online ]; then
@@ -604,7 +587,7 @@ print_right_aligned() {
 
 # ─── Output Assembly ─────────────────────────────────────────────────────────
 if [ "$COLS" -ge 180 ]; then
-  LINE1="${S}${CLI_VER_FMT}${USER_FMT}${HOST_FMT}${M}${DIR_FMT}${V}${CONV_FMT}"
+  LINE1="${S}${CLI_VER_FMT}${USER_FMT}${M}${DIR_FMT}${V}${CONV_FMT}"
 
   if [ -n "$QUOTA_FMT" ]; then
     LINE2="${ART_FMT}${DOT_L2}${SUB_FMT}${DOT_L2}${BG_FMT}${DOT_L2}${SB}${DOT_L2}${CTX_BAR}${TOK_DETAILS_WIDE}${QUOTA_FMT}${POWER_FMT}"
@@ -615,7 +598,7 @@ if [ "$COLS" -ge 180 ]; then
 
 elif [ "$COLS" -ge 90 ]; then
   # Medium Layout: Two-line layout with border
-  LINE1="${S}${CLI_VER_FMT}${USER_FMT}${HOST_FMT}${M}${DIR_FMT}${V}"
+  LINE1="${S}${CLI_VER_FMT}${USER_FMT}${M}${DIR_FMT}${V}"
   if [ -n "$QUOTA_FMT" ]; then
     LINE2=" ${CTX_BAR}${TOK_DETAILS_MED}${DOT_L2}${ART_FMT}${DOT_L2}${SUB_FMT}${DOT_L2}${BG_FMT}${DOT_L2}${SB}${QUOTA_FMT}${POWER_FMT}"
   else
