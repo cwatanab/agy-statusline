@@ -1,5 +1,6 @@
 // ─── Parsed Input ─────────────────────────────────────────────────────────
 
+#[derive(Debug)]
 pub struct ParsedInput {
     pub agent_state: String,
     pub used_percentage: f64,
@@ -246,6 +247,7 @@ impl<'a> JsonParser<'a> {
 }
 
 pub fn parse_input(json: &str) -> ParsedInput {
+    let json = json.trim_start_matches('\u{FEFF}');
     let mut p = JsonParser::new(json);
     p.skip_whitespace();
     if p.peek() != Some(b'{') {
@@ -317,10 +319,10 @@ fn parse_field(p: &mut JsonParser, input: &mut ParsedInput, key: &str) {
                 input.subagent_count = p.read_array_len();
             }
         }
-        "context_window" => parse_context_window(p, input),
-        "sandbox" => parse_sandbox(p, input),
-        "model" => parse_model(p, input),
-        "quota" => parse_quota(p, input),
+        "context_window" => { if !p.is_null() { parse_context_window(p, input); } }
+        "sandbox" => { if !p.is_null() { parse_sandbox(p, input); } }
+        "model" => { if !p.is_null() { parse_model(p, input); } }
+        "quota" => { if !p.is_null() { parse_quota(p, input); } }
         _ => { p.skip_value(); }
     }
 }

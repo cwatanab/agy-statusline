@@ -213,3 +213,10 @@ fn truncated_mid_string() {
     let input = parse_input(r#"{"agent_state": "thin"#);
     assert_eq!(input.agent_state, "thin");
 }
+
+#[test]
+fn null_objects() {
+    let input = parse_input(r#"{"context_window": null, "sandbox": null, "model": null, "quota": null, "terminal_width": 120}"#);
+    assert_eq!(input.terminal_width, 120);
+    assert_eq!(input.model_id, "");
+}

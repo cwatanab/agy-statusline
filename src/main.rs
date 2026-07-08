@@ -225,13 +225,19 @@ fn build_quota_bar(
         String::new()
     };
 
+    let pct_str = if remaining_pct % 1.0 == 0.0 {
+        format!("{:.0}", remaining_pct)
+    } else {
+        format!("{:.1}", remaining_pct)
+    };
+
     if use_classic {
         format!(
-            "{separator}{ANSI_BRIGHT_WHITE}{BOLD}{label}{RESET} {bar_color}{bar}{RESET} {text_color}{pct_int}%{RESET}{reset_label}"
+            "{separator}{ANSI_BRIGHT_WHITE}{BOLD}{label}{RESET} {bar_color}{bar}{RESET} {text_color}{pct_str}%{RESET}{reset_label}"
         )
     } else {
         format!(
-            "{separator}{ANSI_BRIGHT_WHITE}{BOLD}{label}{RESET} {bar} {text_color}{pct_int}%{RESET}{reset_label}"
+            "{separator}{ANSI_BRIGHT_WHITE}{BOLD}{label}{RESET} {bar} {text_color}{pct_str}%{RESET}{reset_label}"
         )
     }
 }
@@ -524,10 +530,11 @@ fn build_view(input: &ParsedInput, icons: &Icons, classic: bool) -> View {
 
     // Model short (for narrow layout)
     let model_short_str = if !model_display.is_empty() {
+        let model_disp_short: String = model_display.chars().take(12).collect();
         if classic {
-            format!("{ANSI_GRAY} ╱ {ANSI_BRIGHT_MAGENTA}{}{RESET}", model_display)
+            format!("{ANSI_GRAY} ╱ {ANSI_BRIGHT_MAGENTA}{}{RESET}", model_disp_short)
         } else {
-            format!("{ANSI_GRAY} ╱ {ANSI_BRIGHT_MAGENTA}{} {}{RESET}", icons.model, model_display)
+            format!("{ANSI_GRAY} ╱ {ANSI_BRIGHT_MAGENTA}{} {}{RESET}", icons.model, model_disp_short)
         }
     } else {
         String::new()
