@@ -107,6 +107,9 @@ impl<'a> JsonParser<'a> {
 
     fn read_string(&mut self) -> &'a str {
         self.skip_whitespace();
+        if self.pos >= self.bytes.len() || self.bytes[self.pos] != b'"' {
+            return "";
+        }
         self.advance();
         let start = self.pos;
         while self.pos < self.bytes.len() && self.bytes[self.pos] != b'"' {
@@ -116,8 +119,10 @@ impl<'a> JsonParser<'a> {
             self.pos += 1;
         }
         let end = self.pos;
-        self.advance();
-        std::str::from_utf8(&self.bytes[start..end]).unwrap_or("")
+        if self.pos < self.bytes.len() {
+            self.advance();
+        }
+        std::str::from_utf8(&self.bytes.get(start..end).unwrap_or(b"")).unwrap_or("")
     }
 
     fn read_f64(&mut self) -> f64 {
@@ -150,6 +155,9 @@ impl<'a> JsonParser<'a> {
 
     fn read_bool(&mut self) -> bool {
         self.skip_whitespace();
+        if self.pos >= self.bytes.len() {
+            return false;
+        }
         if self.bytes[self.pos] == b't' {
             self.pos += 4;
             true
@@ -322,7 +330,7 @@ fn parse_context_window(p: &mut JsonParser, input: &mut ParsedInput) {
     p.advance();
     loop {
         p.skip_whitespace();
-        if p.peek() == Some(b'}') { p.advance(); break; }
+        if p.peek() != Some(b'"') { p.advance(); break; }
         let key = p.read_string();
         p.skip_whitespace();
         if p.peek() == Some(b':') { p.advance(); }
@@ -358,7 +366,7 @@ fn parse_sandbox(p: &mut JsonParser, input: &mut ParsedInput) {
     p.advance();
     loop {
         p.skip_whitespace();
-        if p.peek() == Some(b'}') { p.advance(); break; }
+        if p.peek() != Some(b'"') { p.advance(); break; }
         match p.read_string() {
             "enabled" => { p.skip_whitespace(); p.advance(); input.sandbox_enabled = p.read_bool(); }
             "allow_network" => { p.skip_whitespace(); p.advance(); input.sandbox_allow_network = p.read_bool(); }
@@ -374,7 +382,7 @@ fn parse_model(p: &mut JsonParser, input: &mut ParsedInput) {
     p.advance();
     loop {
         p.skip_whitespace();
-        if p.peek() == Some(b'}') { p.advance(); break; }
+        if p.peek() != Some(b'"') { p.advance(); break; }
         match p.read_string() {
             "id" => { p.skip_whitespace(); p.advance(); if !p.is_null() { input.model_id = p.read_string().to_string(); } }
             "display_name" => { p.skip_whitespace(); p.advance(); if !p.is_null() { input.model_display_name = p.read_string().to_string(); } }
@@ -390,7 +398,7 @@ fn parse_quota(p: &mut JsonParser, input: &mut ParsedInput) {
     p.advance();
     loop {
         p.skip_whitespace();
-        if p.peek() == Some(b'}') { p.advance(); break; }
+        if p.peek() != Some(b'"') { p.advance(); break; }
         let quota_key = p.read_string().to_string();
         p.skip_whitespace();
         p.advance();
@@ -400,7 +408,7 @@ fn parse_quota(p: &mut JsonParser, input: &mut ParsedInput) {
         let mut reset_sec = -1i64;
         loop {
             p.skip_whitespace();
-            if p.peek() == Some(b'}') { p.advance(); break; }
+            if p.peek() != Some(b'"') { p.advance(); break; }
             let entry_key = p.read_string();
             p.skip_whitespace();
             p.advance();
