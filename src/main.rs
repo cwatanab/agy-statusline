@@ -5,30 +5,21 @@ use std::env;
 use std::io::{self, Read};
 
 use parse::ParsedInput;
-use sys::{git_info, power_status};
+use sys::git_info;
 
 // ─── ANSI Escape Codes ────────────────────────────────────────────────────
 
 const RESET: &str = "\x1b[0m";
 const BOLD: &str = "\x1b[1m";
-const ITALIC: &str = "\x1b[3m";
 
-const ANSI_RED: &str = "\x1b[31m";
-const ANSI_GREEN: &str = "\x1b[32m";
-const ANSI_YELLOW: &str = "\x1b[33m";
-const ANSI_BLUE: &str = "\x1b[34m";
-const ANSI_MAGENTA: &str = "\x1b[35m";
-const ANSI_CYAN: &str = "\x1b[36m";
 const ANSI_WHITE: &str = "\x1b[37m";
 
 const ANSI_GRAY: &str = "\x1b[90m";
 const ANSI_BRIGHT_RED: &str = "\x1b[91m";
 const ANSI_BRIGHT_GREEN: &str = "\x1b[92m";
 const ANSI_BRIGHT_YELLOW: &str = "\x1b[93m";
-const ANSI_BRIGHT_BLUE: &str = "\x1b[94m";
 const ANSI_BRIGHT_MAGENTA: &str = "\x1b[95m";
 const ANSI_BRIGHT_CYAN: &str = "\x1b[96m";
-const ANSI_BRIGHT_WHITE: &str = "\x1b[97m";
 
 // ─── Nerd Font Icons ──────────────────────────────────────────────────────
 
@@ -44,18 +35,13 @@ struct Icons {
     artifacts: &'static str,
     subagents: &'static str,
     tasks: &'static str,
-    dir: &'static str,
-    conversation: &'static str,
     token_sum: &'static str,
     reset: &'static str,
-    ac: &'static str,
-    battery: &'static str,
     state_ready: &'static str,
     state_thinking: &'static str,
     state_working: &'static str,
     state_tool: &'static str,
     state_unknown: &'static str,
-    user: &'static str,
 }
 
 fn select_icons(classic: bool) -> Icons {
@@ -66,10 +52,9 @@ fn select_icons(classic: bool) -> Icons {
             vcs: "", model: "",
             sandbox_net: "ON (net)", sandbox_nonet: "ON (no-net)", sandbox_off: "OFF",
             context_bar: "ctx", artifacts: "artifacts", subagents: "subagents", tasks: "tasks",
-            dir: "", conversation: "", token_sum: "",
-            reset: "\u{231B}", ac: "AC", battery: "BAT",
+            token_sum: "",
+            reset: "\u{231B}",
             state_ready: "●", state_thinking: "◆", state_working: "⚙", state_tool: "🔧", state_unknown: "\u{231B}",
-            user: "",
         }
     } else {
         Icons {
@@ -78,10 +63,9 @@ fn select_icons(classic: bool) -> Icons {
             vcs: "\u{F418}", model: "\u{F400}",
             sandbox_net: "\u{F0499}", sandbox_nonet: "\u{F0D34}", sandbox_off: "\u{F099C}",
             context_bar: "\u{F134F}", artifacts: "\u{F0F6}", subagents: "\u{F167A}", tasks: "\u{F0AE}",
-            dir: "\u{EA83}", conversation: "\u{F036A}", token_sum: "\u{E26B}",
-            reset: "\u{231B}\u{FE0F}", ac: "\u{F06A5}", battery: "\u{1F50B}",
+            token_sum: "\u{E26B}",
+            reset: "\u{231B}\u{FE0F}",
             state_ready: "\u{F192}", state_thinking: "\u{F07F7}", state_working: "\u{F423}", state_tool: "\u{F425}", state_unknown: "\u{F252}",
-            user: "\u{F01EE}",
         }
     }
 }
@@ -123,63 +107,24 @@ fn format_reset_time(sec: i64) -> String {
     }
 }
 
-fn shorten_path(path: &str) -> String {
-    if path.is_empty() {
-        return String::new();
-    }
-    let home = env::var("HOME").unwrap_or_default();
-    let relative = if !home.is_empty() && path.starts_with(&home) {
-        path.replacen(&home, "~", 1)
-    } else {
-        path.to_string()
-    };
-    if relative.len() > 25 {
-        if let Some(name) = std::path::Path::new(&relative).file_name().and_then(|s| s.to_str()) {
-            return format!("...{name}");
-        }
-    }
-    relative
-}
 
-fn visible_length(s: &str) -> usize {
-    let mut count = 0;
-    let mut chars = s.chars();
-    while let Some(c) = chars.next() {
-        if c == '\x1b' {
-            while let Some(d) = chars.next() {
-                if d == 'm' {
-                    break;
-                }
-            }
-        } else {
-            count += 1;
-        }
-    }
-    count
-}
+
 
 // ─── Bar Drawing ──────────────────────────────────────────────────────────
 
 fn build_quota_bar(
     remaining_pct: f64,
     label: &str,
-    bar_color: &str,
     reset_sec: i64,
     use_classic: bool,
     reset_icon: &str,
 ) -> String {
-    let separator = if use_classic {
-        format!("{ANSI_GRAY} · {RESET}")
-    } else {
-        format!("{ANSI_GRAY}| {RESET}")
-    };
-
     if remaining_pct < -0.5 {
-        let bar_empty: String = (0..20)
+        let bar_empty: String = (0..10)
             .map(|_| if use_classic { "·" } else { "░" })
             .collect();
         return format!(
-            "{separator}{ANSI_BRIGHT_WHITE}{BOLD}{label}{RESET} {ANSI_GRAY}{bar_empty} N/A{RESET}"
+            "{ANSI_GRAY}{BOLD}{label}{RESET} {ANSI_GRAY}{bar_empty} N/A{RESET}"
         );
     }
 
@@ -190,17 +135,17 @@ fn build_quota_bar(
         _ => ANSI_BRIGHT_GREEN,
     };
 
-    let filled = pct_int * 20 / 100;
-    let remainder = (pct_int * 20) % 100;
+    let filled = pct_int * 10 / 100;
+    let remainder = (pct_int * 10) % 100;
 
-    let block_full = format!("{bar_color}█{RESET}");
-    let block_75 = format!("{bar_color}▓{RESET}{ANSI_GRAY}");
-    let block_50 = format!("{bar_color}▒{RESET}{ANSI_GRAY}");
-    let block_25 = format!("{bar_color}░{RESET}{ANSI_GRAY}");
+    let block_full = format!("{text_color}█{RESET}");
+    let block_75 = format!("{text_color}▓{RESET}{ANSI_GRAY}");
+    let block_50 = format!("{text_color}▒{RESET}{ANSI_GRAY}");
+    let block_25 = format!("{text_color}░{RESET}{ANSI_GRAY}");
     let block_empty = format!("{ANSI_GRAY}░{RESET}");
 
-    let mut bar = String::with_capacity(160);
-    for i in 0..20u32 {
+    let mut bar = String::with_capacity(80);
+    for i in 0..10u32 {
         if i < filled {
             if use_classic { bar.push('█'); } else { bar.push_str(&block_full); }
         } else if i == filled {
@@ -232,49 +177,31 @@ fn build_quota_bar(
 
     if use_classic {
         format!(
-            "{separator}{ANSI_BRIGHT_WHITE}{BOLD}{label}{RESET} {bar_color}{bar}{RESET} {text_color}{pct_str}%{RESET}{reset_label}"
+            "{text_color}{BOLD}{label}{RESET} {text_color}{bar}{RESET} {text_color}{pct_str}%{RESET}{reset_label}"
         )
     } else {
         format!(
-            "{separator}{ANSI_BRIGHT_WHITE}{BOLD}{label}{RESET} {bar} {text_color}{pct_str}%{RESET}{reset_label}"
+            "{text_color}{BOLD}{label}{RESET} {bar} {text_color}{pct_str}%{RESET}{reset_label}"
         )
     }
 }
 
-fn print_right_aligned(left: &str, right: &str, total_cols: u32) {
-    let left_vis = visible_length(left);
-    let right_vis = visible_length(right);
-    let padding = if total_cols as usize > left_vis + right_vis {
-        total_cols as usize - left_vis - right_vis
-    } else {
-        1
-    };
-    print!("{left}");
-    for _ in 0..padding {
-        print!(" ");
-    }
-    println!("{right}");
-}
+
 
 // ─── Output Construction ──────────────────────────────────────────────────
 
 struct View {
     state_str: String,
-    version_str: String,
-    user_str: String,
     model_str: String,
-    dir_str: String,
     vcs_str: String,
-    conv_str: String,
     art_str: String,
     sub_str: String,
     task_str: String,
     sandbox_str: String,
     ctx_bar: String,
-    tok_wide: String,
-    tok_medium: String,
+    ctx_size: String,
+    tok_details: String,
     quota_str: String,
-    power_str: String,
     model_short_str: String,
 }
 
@@ -308,75 +235,7 @@ fn build_view(input: &ParsedInput, icons: &Icons, classic: bool) -> View {
         other => format!("{ANSI_WHITE}{BOLD} {} {}{RESET}", icons.state_unknown, other.to_uppercase()),
     };
 
-    // Version
-    let version_str = if input.version.is_empty() {
-        String::new()
-    } else {
-        format!("{dot_l1}{ANSI_GRAY}v{}{RESET}", input.version)
-    };
 
-    // User info
-    let user_str = if !input.plan_tier.is_empty() || !input.email.is_empty() {
-        let info = if !input.plan_tier.is_empty() && !input.email.is_empty() {
-            format!("{} ({})", input.plan_tier, input.email)
-        } else if !input.plan_tier.is_empty() {
-            input.plan_tier.clone()
-        } else {
-            input.email.clone()
-        };
-        let truncated = if info.len() > 35 { format!("{}...", &info[..32]) } else { info };
-        if classic {
-            format!("{dot_l1}{ANSI_GRAY}{truncated}{RESET}")
-        } else {
-            format!("{dot_l1}{ANSI_GRAY}{} {truncated}{RESET}", icons.user)
-        }
-    } else {
-        String::new()
-    };
-
-    // Power status
-    let power_str = {
-        let (on_battery, capacity) = power_status();
-        if on_battery {
-            if let Some(cap) = capacity {
-                if classic {
-                    format!("{dot_l2}{ANSI_BRIGHT_YELLOW}{}:{}%{RESET}", icons.battery, cap)
-                } else {
-                    format!("{dot_l2}{ANSI_BRIGHT_YELLOW}{} {}%{RESET}", icons.battery, cap)
-                }
-            } else {
-                format!("{dot_l2}{ANSI_BRIGHT_YELLOW}{}{RESET}", icons.battery)
-            }
-        } else if classic {
-            format!("{dot_l2}{ANSI_GREEN}{}{RESET}", icons.ac)
-        } else {
-            format!("{dot_l2}{ANSI_GREEN}{} AC{RESET}", icons.ac)
-        }
-    };
-
-    // Working directory
-    let cwd_short = shorten_path(&input.working_dir);
-    let dir_str = if !cwd_short.is_empty() {
-        if classic {
-            format!("{dot_l1}{ANSI_CYAN}{cwd_short}{RESET}")
-        } else {
-            format!("{dot_l1}{ANSI_CYAN}{} {cwd_short}{RESET}", icons.dir)
-        }
-    } else {
-        String::new()
-    };
-
-    // Conversation ID
-    let conv_str = if !input.conversation_id.is_empty() {
-        let len = 8.min(input.conversation_id.len());
-        if classic {
-            format!("{dot_l1}{ANSI_GRAY}{}{RESET}", &input.conversation_id[..len])
-        } else {
-            format!("{dot_l1}{ANSI_GRAY}{} {}{RESET}", icons.conversation, &input.conversation_id[..len])
-        }
-    } else {
-        String::new()
-    };
 
     // VCS (from git directly)
     let (_, vcs_branch, vcs_dirty) = git_info(&input.working_dir);
@@ -384,22 +243,22 @@ fn build_view(input: &ParsedInput, icons: &Icons, classic: bool) -> View {
         String::new()
     } else if vcs_dirty {
         if classic {
-            format!("{dot_l1}{ANSI_BRIGHT_RED}{vcs_branch}{ANSI_BRIGHT_YELLOW}*{RESET}")
+            format!("{dot_l1}{vcs_branch}*")
         } else {
-            format!("{dot_l1}{RESET}{ANSI_BRIGHT_RED}{} {vcs_branch}{ANSI_BRIGHT_YELLOW}*{RESET}", icons.vcs)
+            format!("{dot_l1}{} {vcs_branch}*", icons.vcs)
         }
     } else if classic {
-        format!("{dot_l1}{ANSI_BRIGHT_BLUE}{vcs_branch}{RESET}")
+        format!("{dot_l1}{vcs_branch}")
     } else {
-        format!("{dot_l1}{RESET}{ANSI_BRIGHT_BLUE}{} {vcs_branch}{RESET}", icons.vcs)
+        format!("{dot_l1}{} {vcs_branch}", icons.vcs)
     };
 
     // Model
     let model_str = if !model_display.is_empty() {
         if classic {
-            format!("{dot_l1}{ANSI_BRIGHT_MAGENTA}{ITALIC}{model_display}{RESET}")
+            format!("{dot_l1}{model_display}")
         } else {
-            format!("{dot_l1}{ANSI_BRIGHT_MAGENTA}{ITALIC}{} {model_display}{RESET}", icons.model)
+            format!("{dot_l1}{} {model_display}", icons.model)
         }
     } else {
         String::new()
@@ -408,28 +267,34 @@ fn build_view(input: &ParsedInput, icons: &Icons, classic: bool) -> View {
     // Sandbox badge
     let sandbox_str = if input.sandbox_enabled {
         if input.sandbox_allow_network {
-            format!("{ANSI_GREEN}{} ON (net){RESET}", icons.sandbox_net)
+            if classic {
+                format!("{ANSI_BRIGHT_YELLOW}ON (net){RESET}")
+            } else {
+                format!("{ANSI_BRIGHT_YELLOW}{} ON (net){RESET}", icons.sandbox_net)
+            }
+        } else if classic {
+            format!("{ANSI_BRIGHT_GREEN}ON (no-net){RESET}")
         } else {
-            format!("{ANSI_GREEN}{} ON (no-net){RESET}", icons.sandbox_nonet)
+            format!("{ANSI_BRIGHT_GREEN}{} ON (no-net){RESET}", icons.sandbox_nonet)
         }
     } else if classic {
-        format!("{ANSI_GRAY}sandbox off{RESET}")
+        format!("{ANSI_BRIGHT_RED}sandbox off{RESET}")
     } else {
-        format!("{ANSI_RED}{} OFF{RESET}", icons.sandbox_off)
+        format!("{ANSI_BRIGHT_RED}{} OFF{RESET}", icons.sandbox_off)
     };
 
-    // Context window bar (20 segments)
+    // Context window bar (10 segments)
     let pct_int = input.used_percentage as u32;
     let pct_x10 = (input.used_percentage * 10.0).round() as u32;
     let pct_display = format!("{}.{}", pct_x10 / 10, pct_x10 % 10);
-    let num_fmt = format!("{ANSI_BRIGHT_WHITE}{BOLD}{pct_display}%{RESET}");
+    
+    let fill_color = if pct_int >= 80 { ANSI_BRIGHT_RED }
+    else if pct_int >= 50 { ANSI_BRIGHT_YELLOW }
+    else { ANSI_BRIGHT_GREEN };
+    let num_fmt = format!("{fill_color}{BOLD}{pct_display}%{RESET}");
 
-    let fill_color = if pct_int >= 90 { ANSI_BRIGHT_RED }
-    else if pct_int >= 60 { ANSI_BRIGHT_YELLOW }
-    else { ANSI_YELLOW };
-
-    let filled_segments = pct_int * 20 / 100;
-    let rem = (pct_int * 20) % 100;
+    let filled_segments = pct_int * 10 / 100;
+    let rem = (pct_int * 10) % 100;
 
     let block_full = format!("{fill_color}█{RESET}");
     let block_75 = format!("{fill_color}▓{RESET}{ANSI_GRAY}");
@@ -438,41 +303,41 @@ fn build_view(input: &ParsedInput, icons: &Icons, classic: bool) -> View {
     let block_empty = format!("{ANSI_GRAY}░{RESET}");
 
     let ctx_bar = if classic {
-        let mut bar = String::with_capacity(40);
-        for i in 0..20u32 {
+        let mut bar = String::with_capacity(20);
+        for i in 0..10u32 {
             if i < filled_segments { bar.push('█'); }
             else if i == filled_segments { bar.push_str(match rem { 75.. => "▓", 50.. => "▒", 25.. => "░", _ => "·" }); }
             else { bar.push('·'); }
         }
         format!("{ANSI_GRAY}ctx {fill_color}{bar} {num_fmt}")
     } else {
-        let mut bar = String::with_capacity(160);
-        for i in 0..20u32 {
+        let mut bar = String::with_capacity(80);
+        for i in 0..10u32 {
             if i < filled_segments { bar.push_str(&block_full); }
             else if i == filled_segments { bar.push_str(match rem { 75.. => &block_75, 50.. => &block_50, 25.. => &block_25, _ => &block_empty }); }
             else { bar.push_str(&block_empty); }
         }
-        format!("{ANSI_YELLOW}{}  {RESET}{bar} {num_fmt}", icons.context_bar)
+        format!("{fill_color}{}  {RESET}{bar} {num_fmt}", icons.context_bar)
     };
 
     // Stats
     let art_str = if classic {
-        format!("{ANSI_GRAY}artifacts {ANSI_BRIGHT_WHITE}{BOLD}{}{RESET}", input.artifact_count)
+        format!("artifacts {BOLD}{}{RESET}", input.artifact_count)
     } else {
-        format!("{ANSI_BLUE}{} {ANSI_BRIGHT_WHITE}{BOLD}{}{RESET}", icons.artifacts, input.artifact_count)
+        format!("{} {BOLD}{}{RESET}", icons.artifacts, input.artifact_count)
     };
     let sub_str = if classic {
-        format!("{ANSI_GRAY}subagents {ANSI_BRIGHT_WHITE}{BOLD}{}{RESET}", input.subagent_count)
+        format!("subagents {BOLD}{}{RESET}", input.subagent_count)
     } else {
-        format!("{ANSI_CYAN}{} {ANSI_BRIGHT_WHITE}{BOLD}{}{RESET}", icons.subagents, input.subagent_count)
+        format!("{} {BOLD}{}{RESET}", icons.subagents, input.subagent_count)
     };
     let task_str = if classic {
-        format!("{ANSI_GRAY}tasks {ANSI_BRIGHT_WHITE}{BOLD}{}{RESET}", input.task_count)
+        format!("tasks {BOLD}{}{RESET}", input.task_count)
     } else {
-        format!("{ANSI_MAGENTA}{} {ANSI_BRIGHT_WHITE}{BOLD}{}{RESET}", icons.tasks, input.task_count)
+        format!("{} {BOLD}{}{RESET}", icons.tasks, input.task_count)
     };
 
-    // Token details
+    // Token details and context size
     let itf = human_format(input.total_input_tokens);
     let otf = human_format(input.total_output_tokens);
     let clf = human_format(input.context_window_size);
@@ -480,54 +345,54 @@ fn build_view(input: &ParsedInput, icons: &Icons, classic: bool) -> View {
     let tif = human_format(input.turn_input_tokens);
     let tof = human_format(input.turn_output_tokens);
 
-    let tok_wide = if context_used > 0 {
+    let (ctx_size, tok_details) = if context_used > 0 {
         let turn_info = if input.turn_input_tokens > 0 || input.turn_output_tokens > 0 {
             format!(" | turn: +{tif}/{tof}")
         } else {
             String::new()
         };
-        if classic {
-            format!(" ({cuf}/{clf}){dot_l2}(total: {itf}/{otf}{turn_info})")
+        let size_str = format!(" ({cuf}/{clf})");
+        let details_str = if classic {
+            format!("(total: {itf}/{otf}{turn_info})")
         } else {
-            format!(" ({cuf}/{clf}){dot_l2}{ANSI_YELLOW}{} {RESET} (total: {itf}/{otf}{turn_info})", icons.token_sum)
-        }
+            format!("{} (total: {itf}/{otf}{turn_info})", icons.token_sum)
+        };
+        (size_str, details_str)
     } else {
-        String::new()
+        (String::new(), String::new())
     };
 
-    let tok_medium = if context_used > 0 {
-        format!(" ({cuf}/{clf})")
-    } else {
-        String::new()
-    };
 
     // Quota
     let quota_str = if (active_5h >= 0.0) || (active_weekly >= 0.0) {
-        format!(
-            "{} {}",
-            build_quota_bar(active_5h, "5H", ANSI_BRIGHT_CYAN, active_5h_reset, classic, icons.reset),
-            build_quota_bar(active_weekly, "7D", ANSI_BRIGHT_MAGENTA, active_weekly_reset, classic, icons.reset),
-        )
+        let bar_5h = build_quota_bar(active_5h, "5H", active_5h_reset, classic, icons.reset);
+        let bar_7d = build_quota_bar(active_weekly, "7D", active_weekly_reset, classic, icons.reset);
+        format!("{bar_5h}{dot_l2}{bar_7d}")
     } else {
         String::new()
     };
 
     // Model short (for narrow layout)
     let model_short_str = if !model_display.is_empty() {
-        let model_disp_short: String = model_display.chars().take(12).collect();
-        if classic {
-            format!("{ANSI_GRAY} ╱ {ANSI_BRIGHT_MAGENTA}{}{RESET}", model_disp_short)
+        let cleaned = if let Some(idx) = model_display.find('(') {
+            model_display[..idx].trim()
         } else {
-            format!("{ANSI_GRAY} ╱ {ANSI_BRIGHT_MAGENTA}{} {}{RESET}", icons.model, model_disp_short)
+            model_display.trim()
+        };
+        let model_disp_short: String = cleaned.chars().take(20).collect();
+        if classic {
+            format!("{ANSI_GRAY} ╱ {RESET}{}", model_disp_short)
+        } else {
+            format!("{ANSI_GRAY} ╱ {RESET}{} {}", icons.model, model_disp_short)
         }
     } else {
         String::new()
     };
 
     View {
-        state_str, version_str, user_str, model_str, dir_str,
-        vcs_str, conv_str, art_str, sub_str, task_str, sandbox_str,
-        ctx_bar, tok_wide, tok_medium, quota_str, power_str, model_short_str,
+        state_str, model_str,
+        vcs_str, art_str, sub_str, task_str, sandbox_str,
+        ctx_bar, ctx_size, tok_details, quota_str, model_short_str,
     }
 }
 
@@ -546,62 +411,53 @@ fn main() {
     let view = build_view(&input, &icons, use_classic);
     let cols = input.terminal_width;
 
+    let dot_l1 = &icons.dot_l1;
     let dot_l2 = &icons.dot_l2;
-    let quota_has_data = !view.quota_str.is_empty();
 
-    if cols >= 180 {
+    if cols >= 120 {
         let line1 = format!(
-            "{}{}{}{}{}{}{}",
-            view.state_str, view.version_str, view.user_str,
-            view.model_str, view.dir_str, view.vcs_str, view.conv_str,
+            "{}{}{}",
+            view.state_str,
+            view.model_str, view.vcs_str,
         );
-        let line2 = if quota_has_data {
-            format!(
-                "{}{dot_l2}{}{dot_l2}{}{dot_l2}{}{dot_l2}{}{}{}{}",
-                view.art_str, view.sub_str, view.task_str, view.sandbox_str,
-                view.ctx_bar, view.tok_wide, view.quota_str, view.power_str,
-            )
+        let ctx_combined = if !view.ctx_bar.is_empty() {
+            format!("{}{}", view.ctx_bar, view.ctx_size)
         } else {
-            format!(
-                "{}{dot_l2}{}{dot_l2}{}{dot_l2}{}{dot_l2}{}{}{}",
-                view.art_str, view.sub_str, view.task_str, view.sandbox_str,
-                view.ctx_bar, view.tok_wide, view.power_str,
-            )
+            view.ctx_size.clone()
         };
-        print_right_aligned(&line1, &line2, cols);
-    } else if cols >= 90 {
-        let line1 = format!(
-            "{}{}{}{}{}{}",
-            view.state_str, view.version_str, view.user_str,
-            view.model_str, view.dir_str, view.vcs_str,
-        );
-        let line2 = if quota_has_data {
-            format!(
-                " {}{}{dot_l2}{}{dot_l2}{}{dot_l2}{}{dot_l2}{}{}{}",
-                view.ctx_bar, view.tok_medium, view.art_str, view.sub_str,
-                view.task_str, view.sandbox_str, view.quota_str, view.power_str,
-            )
+
+        let mut right_parts = Vec::new();
+        right_parts.push(view.art_str.as_str());
+        right_parts.push(view.sub_str.as_str());
+        right_parts.push(view.task_str.as_str());
+        right_parts.push(view.sandbox_str.as_str());
+        if !ctx_combined.is_empty() { right_parts.push(ctx_combined.as_str()); }
+        if !view.quota_str.is_empty() { right_parts.push(view.quota_str.as_str()); }
+        if !view.tok_details.is_empty() { right_parts.push(view.tok_details.as_str()); }
+
+        let extra_str = if !right_parts.is_empty() {
+            let joined = right_parts.join(dot_l2);
+            format!("{dot_l1}{joined}")
         } else {
-            format!(
-                " {}{}{dot_l2}{}{dot_l2}{}{dot_l2}{}{dot_l2}{}{}",
-                view.ctx_bar, view.tok_medium, view.art_str, view.sub_str,
-                view.task_str, view.sandbox_str, view.power_str,
-            )
+            String::new()
         };
-        println!("{ANSI_GRAY}╭─{RESET}{line1}");
-        println!("{ANSI_GRAY}╰─{RESET}{line2}");
+        println!("{}{}", line1, extra_str);
     } else {
-        println!("{}{}", view.state_str, view.model_short_str);
-        if quota_has_data {
-            println!(
-                "{}{dot_l2}{}{}{}",
-                view.ctx_bar, view.task_str, view.quota_str, view.power_str,
-            );
+        let mut info_parts = Vec::new();
+        if !view.art_str.is_empty() { info_parts.push(&view.art_str); }
+        if !view.sub_str.is_empty() { info_parts.push(&view.sub_str); }
+        if !view.task_str.is_empty() { info_parts.push(&view.task_str); }
+        if !view.sandbox_str.is_empty() { info_parts.push(&view.sandbox_str); }
+        if !view.ctx_bar.is_empty() { info_parts.push(&view.ctx_bar); }
+        if !view.quota_str.is_empty() { info_parts.push(&view.quota_str); }
+
+        let extra_str = if !info_parts.is_empty() {
+            let joined = info_parts.iter().map(|s| s.as_str()).collect::<Vec<&str>>().join(dot_l2);
+            format!("{dot_l1}{joined}")
         } else {
-            println!(
-                "{}{dot_l2}{}{}",
-                view.ctx_bar, view.task_str, view.power_str,
-            );
-        }
+            String::new()
+        };
+
+        println!("{}{}{}{}", view.state_str, view.model_short_str, view.vcs_str, extra_str);
     }
 }

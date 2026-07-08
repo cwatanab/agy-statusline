@@ -140,25 +140,13 @@ fn classic_mode_uses_text_labels() {
 }
 
 #[test]
-fn narrow_layout_is_two_lines() {
+fn narrow_layout_is_one_line() {
     let json = r#"{"agent_state":"idle","context_window":{"used_percentage":0,"total_input_tokens":0,"total_output_tokens":0,"context_window_size":0},"sandbox":{"enabled":false,"allow_network":false},"artifact_count":0,"subagents":[],"task_count":0,"model":{"id":"gpt","display_name":"GPT"},"terminal_width":60}"#;
     let out = run_statusline(json, &[]).unwrap();
     let lines: Vec<&str> = out.lines().collect();
-    assert_eq!(lines.len(), 2, "Narrow layout should have 2 lines, got: {:?}", lines);
-    assert!(strip_ansi(lines[0]).contains("READY"), "Line 1 should contain READY");
-    assert!(strip_ansi(lines[0]).contains("GPT"), "Line 1 should contain model name");
-}
-
-#[test]
-fn medium_layout_has_two_lines_with_borders() {
-    let json = r#"{"agent_state":"idle","context_window":{"used_percentage":0,"total_input_tokens":0,"total_output_tokens":0,"context_window_size":0},"sandbox":{"enabled":false,"allow_network":false},"artifact_count":0,"subagents":[],"task_count":0,"model":{"id":"","display_name":""},"terminal_width":120}"#;
-    let out = run_statusline(json, &[]).unwrap();
-    let lines: Vec<&str> = out.lines().collect();
-    assert_eq!(lines.len(), 2);
-    let s1 = strip_ansi(lines[0]);
-    let s2 = strip_ansi(lines[1]);
-    assert!(s1.starts_with("╭─"), "Medium layout line 1 should start with ╭─");
-    assert!(s2.starts_with("╰─"), "Medium layout line 2 should start with ╰─");
+    assert_eq!(lines.len(), 1, "Narrow layout should have 1 line, got: {:?}", lines);
+    assert!(strip_ansi(lines[0]).contains("READY"), "Line should contain READY");
+    assert!(strip_ansi(lines[0]).contains("GPT"), "Line should contain model name");
 }
 
 #[test]
@@ -179,21 +167,9 @@ fn artifacts_subagents_tasks_counts() {
     assert!(stripped.contains(" 3 "), "Expected subagent/task count 3: {}", stripped);
 }
 
-#[test]
-fn version_shown() {
-    let json = r#"{"agent_state":"idle","context_window":{"used_percentage":0,"total_input_tokens":0,"total_output_tokens":0,"context_window_size":0},"sandbox":{"enabled":false,"allow_network":false},"artifact_count":0,"subagents":[],"task_count":0,"model":{"id":"","display_name":""},"terminal_width":200,"version":"1.17.15"}"#;
-    let out = run_statusline(json, &[]).unwrap();
-    let stripped = strip_ansi(&out);
-    assert!(stripped.contains("v1.17.15"), "Expected 'v1.17.15': {}", stripped);
-}
 
-#[test]
-fn user_info_shown() {
-    let json = r#"{"agent_state":"idle","context_window":{"used_percentage":0,"total_input_tokens":0,"total_output_tokens":0,"context_window_size":0},"sandbox":{"enabled":false,"allow_network":false},"artifact_count":0,"subagents":[],"task_count":0,"model":{"id":"","display_name":""},"terminal_width":200,"plan_tier":"pro","email":"user@example.com"}"#;
-    let out = run_statusline(json, &[]).unwrap();
-    let stripped = strip_ansi(&out);
-    assert!(stripped.contains("pro (user@example.com)"), "Expected user info: {}", stripped);
-}
+
+
 
 #[test]
 fn token_count_shown() {
@@ -221,4 +197,21 @@ fn vcs_dirty_shows_asterisk() {
     if stripped.contains("main") {
         assert!(stripped.contains("main"), "Should show git branch");
     }
+}
+
+#[test]
+fn narrow_layout_model_trimming() {
+    let json_high = r#"{"agent_state":"idle","context_window":{"used_percentage":0,"total_input_tokens":0,"total_output_tokens":0,"context_window_size":0},"sandbox":{"enabled":false,"allow_network":false},"artifact_count":0,"subagents":[],"task_count":0,"model":{"id":"gemini-3.5-flash-high","display_name":"Gemini 3.5 Flash (High)"},"terminal_width":60}"#;
+    let out_high = run_statusline(json_high, &[]).unwrap();
+    let lines_high: Vec<&str> = out_high.lines().collect();
+    let line1_high = strip_ansi(lines_high[0]);
+    assert!(line1_high.contains("Gemini 3.5 Flash"), "Should trim (High) from model name: {}", line1_high);
+    assert!(!line1_high.contains("(High)"), "Should not contain (High): {}", line1_high);
+
+    let json_long = r#"{"agent_state":"idle","context_window":{"used_percentage":0,"total_input_tokens":0,"total_output_tokens":0,"context_window_size":0},"sandbox":{"enabled":false,"allow_network":false},"artifact_count":0,"subagents":[],"task_count":0,"model":{"id":"long-model","display_name":"SuperLongModelNameThatExceedsTwentyChars"},"terminal_width":60}"#;
+    let out_long = run_statusline(json_long, &[]).unwrap();
+    let lines_long: Vec<&str> = out_long.lines().collect();
+    let line1_long = strip_ansi(lines_long[0]);
+    assert!(line1_long.contains("SuperLongModelNameTh"), "Should limit model name to 20 chars: {}", line1_long);
+    assert!(!line1_long.contains("Chars"), "Should not contain full name: {}", line1_long);
 }

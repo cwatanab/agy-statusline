@@ -1,22 +1,6 @@
 use std::process::Command;
 
-pub fn power_status() -> (bool, Option<u8>) {
-    #[cfg(target_os = "linux")]
-    {
-        let ac = std::fs::read_to_string("/sys/class/power_supply/ACAD/online")
-            .ok()
-            .and_then(|s| s.trim().parse::<u8>().ok())
-            .unwrap_or(1);
-        let battery = std::fs::read_to_string("/sys/class/power_supply/BAT1/capacity")
-            .ok()
-            .and_then(|s| s.trim().parse::<u8>().ok());
-        (ac == 0, battery)
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        (false, None)
-    }
-}
+
 
 pub fn git_info(working_dir: &str) -> (String, String, bool) {
     let dir = if working_dir.is_empty() { "." } else { working_dir };
