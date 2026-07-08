@@ -5,7 +5,7 @@ use std::env;
 use std::io::{self, Read};
 
 use parse::ParsedInput;
-use sys::{git_info, hostname, power_status, tailscale_ip};
+use sys::{git_info, power_status};
 
 // ─── ANSI Escape Codes ────────────────────────────────────────────────────
 
@@ -56,7 +56,6 @@ struct Icons {
     state_tool: &'static str,
     state_unknown: &'static str,
     user: &'static str,
-    host: &'static str,
 }
 
 fn select_icons(classic: bool) -> Icons {
@@ -70,7 +69,7 @@ fn select_icons(classic: bool) -> Icons {
             dir: "", conversation: "", token_sum: "",
             reset: "\u{231B}", ac: "AC", battery: "BAT",
             state_ready: "●", state_thinking: "◆", state_working: "⚙", state_tool: "🔧", state_unknown: "\u{231B}",
-            user: "", host: "",
+            user: "",
         }
     } else {
         Icons {
@@ -82,7 +81,7 @@ fn select_icons(classic: bool) -> Icons {
             dir: "\u{EA83}", conversation: "\u{F036A}", token_sum: "\u{E26B}",
             reset: "\u{231B}\u{FE0F}", ac: "\u{F06A5}", battery: "\u{1F50B}",
             state_ready: "\u{F192}", state_thinking: "\u{F07F7}", state_working: "\u{F423}", state_tool: "\u{F425}", state_unknown: "\u{F252}",
-            user: "\u{F01EE}", host: "\u{F048B}",
+            user: "\u{F01EE}",
         }
     }
 }
@@ -263,7 +262,6 @@ struct View {
     state_str: String,
     version_str: String,
     user_str: String,
-    host_str: String,
     model_str: String,
     dir_str: String,
     vcs_str: String,
@@ -331,20 +329,6 @@ fn build_view(input: &ParsedInput, icons: &Icons, classic: bool) -> View {
             format!("{dot_l1}{ANSI_GRAY}{truncated}{RESET}")
         } else {
             format!("{dot_l1}{ANSI_GRAY}{} {truncated}{RESET}", icons.user)
-        }
-    } else {
-        String::new()
-    };
-
-    // Host info
-    let host_name = hostname();
-    let ts_ip = tailscale_ip();
-    let host_str = if !host_name.is_empty() {
-        let details = if !ts_ip.is_empty() { format!("{host_name} ({ts_ip})") } else { host_name };
-        if classic {
-            format!("{dot_l1}{ANSI_BRIGHT_BLUE}{details}{RESET}")
-        } else {
-            format!("{dot_l1}{ANSI_BRIGHT_BLUE}{} {details}{RESET}", icons.host)
         }
     } else {
         String::new()
@@ -541,7 +525,7 @@ fn build_view(input: &ParsedInput, icons: &Icons, classic: bool) -> View {
     };
 
     View {
-        state_str, version_str, user_str, host_str, model_str, dir_str,
+        state_str, version_str, user_str, model_str, dir_str,
         vcs_str, conv_str, art_str, sub_str, task_str, sandbox_str,
         ctx_bar, tok_wide, tok_medium, quota_str, power_str, model_short_str,
     }
@@ -567,8 +551,8 @@ fn main() {
 
     if cols >= 180 {
         let line1 = format!(
-            "{}{}{}{}{}{}{}{}",
-            view.state_str, view.version_str, view.user_str, view.host_str,
+            "{}{}{}{}{}{}{}",
+            view.state_str, view.version_str, view.user_str,
             view.model_str, view.dir_str, view.vcs_str, view.conv_str,
         );
         let line2 = if quota_has_data {
@@ -587,8 +571,8 @@ fn main() {
         print_right_aligned(&line1, &line2, cols);
     } else if cols >= 90 {
         let line1 = format!(
-            "{}{}{}{}{}{}{}",
-            view.state_str, view.version_str, view.user_str, view.host_str,
+            "{}{}{}{}{}{}",
+            view.state_str, view.version_str, view.user_str,
             view.model_str, view.dir_str, view.vcs_str,
         );
         let line2 = if quota_has_data {
