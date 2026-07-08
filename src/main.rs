@@ -110,16 +110,26 @@ fn hostname() -> String {
     Command::new("hostname").output().ok().and_then(|o| String::from_utf8(o.stdout).ok()).map(|s| s.trim().to_string()).unwrap_or_default()
 }
 fn tailscale_ip() -> String {
-    Command::new("ip").args(["-4", "addr", "show", "dev", "tailscale0"]).output().ok()
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .and_then(|s| s.lines().find_map(|l| {
-            let t = l.trim(); if t.starts_with("inet ") { t.split_whitespace().nth(1).map(|x| x.split('/').next().unwrap_or("").to_string()) } else { None }
-        })).unwrap_or_default()
+    #[cfg(target_os = "linux")]
+    {
+        Command::new("ip").args(["-4", "addr", "show", "dev", "tailscale0"]).output().ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .and_then(|s| s.lines().find_map(|l| {
+                let t = l.trim(); if t.starts_with("inet ") { t.split_whitespace().nth(1).map(|x| x.split('/').next().unwrap_or("").to_string()) } else { None }
+            })).unwrap_or_default()
+    }
+    #[cfg(not(target_os = "linux"))]
+    { String::new() }
 }
 fn power_status() -> (bool, Option<u8>) {
-    let ac = std::fs::read_to_string("/sys/class/power_supply/ACAD/online").ok().and_then(|s| s.trim().parse::<u8>().ok()).unwrap_or(1);
-    let bat = std::fs::read_to_string("/sys/class/power_supply/BAT1/capacity").ok().and_then(|s| s.trim().parse::<u8>().ok());
-    (ac == 0, bat)
+    #[cfg(target_os = "linux")]
+    {
+        let ac = std::fs::read_to_string("/sys/class/power_supply/ACAD/online").ok().and_then(|s| s.trim().parse::<u8>().ok()).unwrap_or(1);
+        let bat = std::fs::read_to_string("/sys/class/power_supply/BAT1/capacity").ok().and_then(|s| s.trim().parse::<u8>().ok());
+        (ac == 0, bat)
+    }
+    #[cfg(not(target_os = "linux"))]
+    (false, None)
 }
 fn git_info(cwd: &str) -> (String, String, bool) {
     let d = if cwd.is_empty() { "." } else { cwd };
@@ -315,7 +325,8 @@ fn main() {
 
     // ─── Computed ─────────────────────────────────────────────────────────────
     let pct_int = used_pct as u32;
-    let pct_fmt = format!("{:.1}", used_pct);
+    let pct_x10 = (used_pct * 10.0).round() as u32;
+    let pct_fmt = format!("{}.{}", pct_x10 / 10, pct_x10 % 10);
     let itf = human_format(input_tokens); let otf = human_format(output_tokens);
     let clf = human_format(ctx_limit); let cuf = human_format(ctx_used);
     let tif = human_format(turn_input); let tof = human_format(turn_output);
