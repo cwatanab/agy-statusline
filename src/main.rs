@@ -135,28 +135,33 @@ fn build_quota_bar(
         _ => ANSI_BRIGHT_GREEN,
     };
 
-    let filled = pct_int * 10 / 100;
-    let remainder = (pct_int * 10) % 100;
+    let filled_grades = ((remaining_pct * 80.0) / 100.0).round() as i32;
+    let filled_grades = filled_grades.clamp(0, 80) as u32;
+    let filled_chars = filled_grades / 8;
+    let rem_grades = filled_grades % 8;
 
     let block_full = format!("{text_color}█{RESET}");
-    let block_75 = format!("{text_color}▓{RESET}{ANSI_GRAY}");
-    let block_50 = format!("{text_color}▒{RESET}{ANSI_GRAY}");
-    let block_25 = format!("{text_color}░{RESET}{ANSI_GRAY}");
     let block_empty = format!("{ANSI_GRAY}░{RESET}");
+    const BLOCK_CHARS: [&str; 8] = ["", "▏", "▎", "▍", "▌", "▋", "▊", "▉"];
 
     let mut bar = String::with_capacity(80);
     for i in 0..10u32 {
-        if i < filled {
+        if i < filled_chars {
             if use_classic { bar.push('█'); } else { bar.push_str(&block_full); }
-        } else if i == filled {
+        } else if i == filled_chars {
+            let block_char = BLOCK_CHARS[rem_grades as usize];
             if use_classic {
-                bar.push_str(match remainder {
-                    75.. => "▓", 50.. => "▒", 25.. => "░", _ => "·",
-                });
+                if block_char.is_empty() {
+                    bar.push('·');
+                } else {
+                    bar.push_str(block_char);
+                }
             } else {
-                bar.push_str(match remainder {
-                    75.. => &block_75, 50.. => &block_50, 25.. => &block_25, _ => &block_empty,
-                });
+                if block_char.is_empty() {
+                    bar.push_str(&block_empty);
+                } else {
+                    bar.push_str(&format!("{text_color}{block_char}{RESET}"));
+                }
             }
         } else {
             if use_classic { bar.push('·'); } else { bar.push_str(&block_empty); }
@@ -293,29 +298,47 @@ fn build_view(input: &ParsedInput, icons: &Icons, classic: bool) -> View {
     else { ANSI_BRIGHT_GREEN };
     let num_fmt = format!("{fill_color}{BOLD}{pct_display}%{RESET}");
 
-    let filled_segments = pct_int * 10 / 100;
-    let rem = (pct_int * 10) % 100;
+    let filled_grades = ((input.used_percentage * 80.0) / 100.0).round() as i32;
+    let filled_grades = filled_grades.clamp(0, 80) as u32;
+    let filled_chars = filled_grades / 8;
+    let rem_grades = filled_grades % 8;
 
     let block_full = format!("{fill_color}█{RESET}");
-    let block_75 = format!("{fill_color}▓{RESET}{ANSI_GRAY}");
-    let block_50 = format!("{fill_color}▒{RESET}{ANSI_GRAY}");
-    let block_25 = format!("{fill_color}░{RESET}{ANSI_GRAY}");
     let block_empty = format!("{ANSI_GRAY}░{RESET}");
+    const BLOCK_CHARS: [&str; 8] = ["", "▏", "▎", "▍", "▌", "▋", "▊", "▉"];
 
     let ctx_bar = if classic {
         let mut bar = String::with_capacity(20);
         for i in 0..10u32 {
-            if i < filled_segments { bar.push('█'); }
-            else if i == filled_segments { bar.push_str(match rem { 75.. => "▓", 50.. => "▒", 25.. => "░", _ => "·" }); }
-            else { bar.push('·'); }
+            if i < filled_chars {
+                bar.push('█');
+            } else if i == filled_chars {
+                let block_char = BLOCK_CHARS[rem_grades as usize];
+                if block_char.is_empty() {
+                    bar.push('·');
+                } else {
+                    bar.push_str(block_char);
+                }
+            } else {
+                bar.push('·');
+            }
         }
         format!("{ANSI_GRAY}ctx {fill_color}{bar} {num_fmt}")
     } else {
         let mut bar = String::with_capacity(80);
         for i in 0..10u32 {
-            if i < filled_segments { bar.push_str(&block_full); }
-            else if i == filled_segments { bar.push_str(match rem { 75.. => &block_75, 50.. => &block_50, 25.. => &block_25, _ => &block_empty }); }
-            else { bar.push_str(&block_empty); }
+            if i < filled_chars {
+                bar.push_str(&block_full);
+            } else if i == filled_chars {
+                let block_char = BLOCK_CHARS[rem_grades as usize];
+                if block_char.is_empty() {
+                    bar.push_str(&block_empty);
+                } else {
+                    bar.push_str(&format!("{fill_color}{block_char}{RESET}"));
+                }
+            } else {
+                bar.push_str(&block_empty);
+            }
         }
         format!("{fill_color}{}  {RESET}{bar} {num_fmt}", icons.context_bar)
     };
