@@ -141,7 +141,7 @@ fn build_quota_bar(
     let rem_grades = filled_grades % 8;
 
     let block_full = format!("{text_color}█{RESET}");
-    let block_empty = format!("{ANSI_GRAY}░{RESET}");
+    let block_empty = format!("{ANSI_GRAY}·{RESET}");
     const BLOCK_CHARS: [&str; 8] = ["", "▏", "▎", "▍", "▌", "▋", "▊", "▉"];
 
     let mut bar = String::with_capacity(80);
@@ -303,7 +303,7 @@ fn build_view(input: &ParsedInput, icons: &Icons, classic: bool) -> View {
     let rem_grades = filled_grades % 8;
 
     let block_full = format!("{fill_color}█{RESET}");
-    let block_empty = format!("{ANSI_GRAY}░{RESET}");
+    let block_empty = format!("{ANSI_GRAY}·{RESET}");
     const BLOCK_CHARS: [&str; 8] = ["", "▏", "▎", "▍", "▌", "▋", "▊", "▉"];
 
     let ctx_bar = if classic {
