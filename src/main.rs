@@ -207,7 +207,6 @@ struct View {
     ctx_size: String,
     tok_details: String,
     quota_str: String,
-    model_short_str: String,
 }
 
 fn build_view(input: &ParsedInput, icons: &Icons, classic: bool) -> View {
@@ -395,27 +394,10 @@ fn build_view(input: &ParsedInput, icons: &Icons, classic: bool) -> View {
         String::new()
     };
 
-    // Model short (for narrow layout)
-    let model_short_str = if !model_display.is_empty() {
-        let cleaned = if let Some(idx) = model_display.find('(') {
-            model_display[..idx].trim()
-        } else {
-            model_display.trim()
-        };
-        let model_disp_short: String = cleaned.chars().take(20).collect();
-        if classic {
-            format!("{ANSI_GRAY} ╱ {RESET}{}", model_disp_short)
-        } else {
-            format!("{ANSI_GRAY} ╱ {RESET}{} {}", icons.model, model_disp_short)
-        }
-    } else {
-        String::new()
-    };
-
     View {
         state_str, model_str,
         vcs_str, art_str, sub_str, task_str, sandbox_str,
-        ctx_bar, ctx_size, tok_details, quota_str, model_short_str,
+        ctx_bar, ctx_size, tok_details, quota_str,
     }
 }
 
@@ -432,55 +414,35 @@ fn main() {
     let input = parse::parse_input(&stdin);
     let icons = select_icons(use_classic);
     let view = build_view(&input, &icons, use_classic);
-    let cols = input.terminal_width;
 
     let dot_l1 = &icons.dot_l1;
     let dot_l2 = &icons.dot_l2;
 
-    if cols >= 120 {
-        let line1 = format!(
-            "{}{}{}",
-            view.state_str,
-            view.model_str, view.vcs_str,
-        );
-        let ctx_combined = if !view.ctx_bar.is_empty() {
-            format!("{}{}", view.ctx_bar, view.ctx_size)
-        } else {
-            view.ctx_size.clone()
-        };
-
-        let mut right_parts = Vec::new();
-        right_parts.push(view.art_str.as_str());
-        right_parts.push(view.sub_str.as_str());
-        right_parts.push(view.task_str.as_str());
-        right_parts.push(view.sandbox_str.as_str());
-        if !ctx_combined.is_empty() { right_parts.push(ctx_combined.as_str()); }
-        if !view.quota_str.is_empty() { right_parts.push(view.quota_str.as_str()); }
-        if !view.tok_details.is_empty() { right_parts.push(view.tok_details.as_str()); }
-
-        let extra_str = if !right_parts.is_empty() {
-            let joined = right_parts.join(dot_l2);
-            format!("{dot_l1}{joined}")
-        } else {
-            String::new()
-        };
-        println!("{}{}", line1, extra_str);
+    let line1 = format!(
+        "{}{}{}",
+        view.state_str,
+        view.model_str, view.vcs_str,
+    );
+    let ctx_combined = if !view.ctx_bar.is_empty() {
+        format!("{}{}", view.ctx_bar, view.ctx_size)
     } else {
-        let mut info_parts = Vec::new();
-        if !view.art_str.is_empty() { info_parts.push(&view.art_str); }
-        if !view.sub_str.is_empty() { info_parts.push(&view.sub_str); }
-        if !view.task_str.is_empty() { info_parts.push(&view.task_str); }
-        if !view.sandbox_str.is_empty() { info_parts.push(&view.sandbox_str); }
-        if !view.ctx_bar.is_empty() { info_parts.push(&view.ctx_bar); }
-        if !view.quota_str.is_empty() { info_parts.push(&view.quota_str); }
+        view.ctx_size.clone()
+    };
 
-        let extra_str = if !info_parts.is_empty() {
-            let joined = info_parts.iter().map(|s| s.as_str()).collect::<Vec<&str>>().join(dot_l2);
-            format!("{dot_l1}{joined}")
-        } else {
-            String::new()
-        };
+    let mut right_parts = Vec::new();
+    right_parts.push(view.art_str.as_str());
+    right_parts.push(view.sub_str.as_str());
+    right_parts.push(view.task_str.as_str());
+    right_parts.push(view.sandbox_str.as_str());
+    if !ctx_combined.is_empty() { right_parts.push(ctx_combined.as_str()); }
+    if !view.quota_str.is_empty() { right_parts.push(view.quota_str.as_str()); }
+    if !view.tok_details.is_empty() { right_parts.push(view.tok_details.as_str()); }
 
-        println!("{}{}{}{}", view.state_str, view.model_short_str, view.vcs_str, extra_str);
-    }
+    let extra_str = if !right_parts.is_empty() {
+        let joined = right_parts.join(dot_l2);
+        format!("{dot_l1}{joined}")
+    } else {
+        String::new()
+    };
+    println!("{}{}", line1, extra_str);
 }
