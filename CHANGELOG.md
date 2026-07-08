@@ -21,7 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 電源ステータス表示（バッテリーおよびAC接続情報）を完全に削除。
 - ホスト名（hostname）およびTailscale IPアドレス（tailscale_ip）の表示と取得処理を完全に削除。
 - バージョン情報、アカウント名、プラン名、カレントディレクトリ、会話IDの表示を完全に削除。
-- 従来の2行表示レイアウトを廃止し、画面幅に応じた1行表示（ワイド/ナローの2パターン）に整理。
+- 画面幅によるナロー/ワイドの分岐およびモデル名切り詰め処理を完全に廃止し、常にすべての詳細情報を左詰めで一列に表示するレイアウトに統一。
 - 各表示要素（モデル名、VCS等）の装飾カラーコードを削除し、デフォルトテキスト色に統一。
 
 [0.2.0]: https://github.com/cwatanab/agy-statusline/compare/v0.1.0...v0.2.0
