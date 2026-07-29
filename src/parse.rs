@@ -11,12 +11,7 @@ pub struct ParsedInput {
     pub task_count: u32,
     pub model_id: String,
     pub model_display_name: String,
-    pub terminal_width: u32,
     pub working_dir: String,
-    pub conversation_id: String,
-    pub version: String,
-    pub plan_tier: String,
-    pub email: String,
     pub total_input_tokens: u64,
     pub total_output_tokens: u64,
     pub context_window_size: u64,
@@ -44,12 +39,7 @@ impl Default for ParsedInput {
             task_count: 0,
             model_id: String::new(),
             model_display_name: String::new(),
-            terminal_width: 80,
             working_dir: String::new(),
-            conversation_id: String::new(),
-            version: String::new(),
-            plan_tier: String::new(),
-            email: String::new(),
             total_input_tokens: 0,
             total_output_tokens: 0,
             context_window_size: 0,
@@ -76,7 +66,10 @@ struct JsonParser<'a> {
 
 impl<'a> JsonParser<'a> {
     fn new(input: &'a str) -> Self {
-        JsonParser { bytes: input.as_bytes(), pos: 0 }
+        JsonParser {
+            bytes: input.as_bytes(),
+            pos: 0,
+        }
     }
 
     fn skip_whitespace(&mut self) {
@@ -200,12 +193,26 @@ impl<'a> JsonParser<'a> {
                 }
                 self.advance();
             }
-            Some(b'{') => { self.advance(); self.skip_object(); }
-            Some(b'[') => { self.advance(); self.skip_array(); }
-            Some(b't') => { self.pos += 4; }
-            Some(b'f') => { self.pos += 5; }
-            Some(b'n') => { self.pos += 4; }
-            Some(b'-' | b'0'..=b'9') => { self.read_number_str(); }
+            Some(b'{') => {
+                self.advance();
+                self.skip_object();
+            }
+            Some(b'[') => {
+                self.advance();
+                self.skip_array();
+            }
+            Some(b't') => {
+                self.pos += 4;
+            }
+            Some(b'f') => {
+                self.pos += 5;
+            }
+            Some(b'n') => {
+                self.pos += 4;
+            }
+            Some(b'-' | b'0'..=b'9') => {
+                self.read_number_str();
+            }
             _ => {}
         }
     }
@@ -292,25 +299,16 @@ pub fn parse_input(json: &str) -> ParsedInput {
 fn parse_field(p: &mut JsonParser, input: &mut ParsedInput, key: &str) {
     match key {
         "agent_state" => {
-            if !p.is_null() { input.agent_state = p.read_string().to_string(); }
+            if !p.is_null() {
+                input.agent_state = p.read_string().to_string();
+            }
         }
         "artifact_count" => input.artifact_count = p.read_u32(),
         "task_count" => input.task_count = p.read_u32(),
-        "terminal_width" => input.terminal_width = p.read_u32(),
         "cwd" => {
-            if !p.is_null() { input.working_dir = p.read_string().to_string(); }
-        }
-        "conversation_id" => {
-            if !p.is_null() { input.conversation_id = p.read_string().to_string(); }
-        }
-        "version" => {
-            if !p.is_null() { input.version = p.read_string().to_string(); }
-        }
-        "plan_tier" => {
-            if !p.is_null() { input.plan_tier = p.read_string().to_string(); }
-        }
-        "email" => {
-            if !p.is_null() { input.email = p.read_string().to_string(); }
+            if !p.is_null() {
+                input.working_dir = p.read_string().to_string();
+            }
         }
         "subagents" => {
             if p.is_null() {
@@ -319,11 +317,29 @@ fn parse_field(p: &mut JsonParser, input: &mut ParsedInput, key: &str) {
                 input.subagent_count = p.read_array_len();
             }
         }
-        "context_window" => { if !p.is_null() { parse_context_window(p, input); } }
-        "sandbox" => { if !p.is_null() { parse_sandbox(p, input); } }
-        "model" => { if !p.is_null() { parse_model(p, input); } }
-        "quota" => { if !p.is_null() { parse_quota(p, input); } }
-        _ => { p.skip_value(); }
+        "context_window" => {
+            if !p.is_null() {
+                parse_context_window(p, input);
+            }
+        }
+        "sandbox" => {
+            if !p.is_null() {
+                parse_sandbox(p, input);
+            }
+        }
+        "model" => {
+            if !p.is_null() {
+                parse_model(p, input);
+            }
+        }
+        "quota" => {
+            if !p.is_null() {
+                parse_quota(p, input);
+            }
+        }
+        _ => {
+            p.skip_value();
+        }
     }
 }
 
@@ -332,10 +348,15 @@ fn parse_context_window(p: &mut JsonParser, input: &mut ParsedInput) {
     p.advance();
     loop {
         p.skip_whitespace();
-        if p.peek() != Some(b'"') { p.advance(); break; }
+        if p.peek() != Some(b'"') {
+            p.advance();
+            break;
+        }
         let key = p.read_string();
         p.skip_whitespace();
-        if p.peek() == Some(b':') { p.advance(); }
+        if p.peek() == Some(b':') {
+            p.advance();
+        }
         match key {
             "used_percentage" => input.used_percentage = p.read_f64(),
             "total_input_tokens" => input.total_input_tokens = p.read_u64(),
@@ -346,20 +367,41 @@ fn parse_context_window(p: &mut JsonParser, input: &mut ParsedInput) {
                 p.advance();
                 loop {
                     p.skip_whitespace();
-                    if p.peek() == Some(b'}') { p.advance(); break; }
+                    if p.peek() == Some(b'}') {
+                        p.advance();
+                        break;
+                    }
                     match p.read_string() {
-                        "input_tokens" => { p.skip_whitespace(); p.advance(); input.turn_input_tokens = p.read_u64(); }
-                        "output_tokens" => { p.skip_whitespace(); p.advance(); input.turn_output_tokens = p.read_u64(); }
-                        _ => { p.skip_whitespace(); p.advance(); p.skip_value(); }
+                        "input_tokens" => {
+                            p.skip_whitespace();
+                            p.advance();
+                            input.turn_input_tokens = p.read_u64();
+                        }
+                        "output_tokens" => {
+                            p.skip_whitespace();
+                            p.advance();
+                            input.turn_output_tokens = p.read_u64();
+                        }
+                        _ => {
+                            p.skip_whitespace();
+                            p.advance();
+                            p.skip_value();
+                        }
                     }
                     p.skip_whitespace();
-                    if p.peek() == Some(b',') { p.advance(); }
+                    if p.peek() == Some(b',') {
+                        p.advance();
+                    }
                 }
             }
-            _ => { p.skip_value(); }
+            _ => {
+                p.skip_value();
+            }
         }
         p.skip_whitespace();
-        if p.peek() == Some(b',') { p.advance(); }
+        if p.peek() == Some(b',') {
+            p.advance();
+        }
     }
 }
 
@@ -368,14 +410,31 @@ fn parse_sandbox(p: &mut JsonParser, input: &mut ParsedInput) {
     p.advance();
     loop {
         p.skip_whitespace();
-        if p.peek() != Some(b'"') { p.advance(); break; }
+        if p.peek() != Some(b'"') {
+            p.advance();
+            break;
+        }
         match p.read_string() {
-            "enabled" => { p.skip_whitespace(); p.advance(); input.sandbox_enabled = p.read_bool(); }
-            "allow_network" => { p.skip_whitespace(); p.advance(); input.sandbox_allow_network = p.read_bool(); }
-            _ => { p.skip_whitespace(); p.advance(); p.skip_value(); }
+            "enabled" => {
+                p.skip_whitespace();
+                p.advance();
+                input.sandbox_enabled = p.read_bool();
+            }
+            "allow_network" => {
+                p.skip_whitespace();
+                p.advance();
+                input.sandbox_allow_network = p.read_bool();
+            }
+            _ => {
+                p.skip_whitespace();
+                p.advance();
+                p.skip_value();
+            }
         }
         p.skip_whitespace();
-        if p.peek() == Some(b',') { p.advance(); }
+        if p.peek() == Some(b',') {
+            p.advance();
+        }
     }
 }
 
@@ -384,14 +443,35 @@ fn parse_model(p: &mut JsonParser, input: &mut ParsedInput) {
     p.advance();
     loop {
         p.skip_whitespace();
-        if p.peek() != Some(b'"') { p.advance(); break; }
+        if p.peek() != Some(b'"') {
+            p.advance();
+            break;
+        }
         match p.read_string() {
-            "id" => { p.skip_whitespace(); p.advance(); if !p.is_null() { input.model_id = p.read_string().to_string(); } }
-            "display_name" => { p.skip_whitespace(); p.advance(); if !p.is_null() { input.model_display_name = p.read_string().to_string(); } }
-            _ => { p.skip_whitespace(); p.advance(); p.skip_value(); }
+            "id" => {
+                p.skip_whitespace();
+                p.advance();
+                if !p.is_null() {
+                    input.model_id = p.read_string().to_string();
+                }
+            }
+            "display_name" => {
+                p.skip_whitespace();
+                p.advance();
+                if !p.is_null() {
+                    input.model_display_name = p.read_string().to_string();
+                }
+            }
+            _ => {
+                p.skip_whitespace();
+                p.advance();
+                p.skip_value();
+            }
         }
         p.skip_whitespace();
-        if p.peek() == Some(b',') { p.advance(); }
+        if p.peek() == Some(b',') {
+            p.advance();
+        }
     }
 }
 
@@ -400,7 +480,10 @@ fn parse_quota(p: &mut JsonParser, input: &mut ParsedInput) {
     p.advance();
     loop {
         p.skip_whitespace();
-        if p.peek() != Some(b'"') { p.advance(); break; }
+        if p.peek() != Some(b'"') {
+            p.advance();
+            break;
+        }
         let quota_key = p.read_string().to_string();
         p.skip_whitespace();
         p.advance();
@@ -410,27 +493,60 @@ fn parse_quota(p: &mut JsonParser, input: &mut ParsedInput) {
         let mut reset_sec = -1i64;
         loop {
             p.skip_whitespace();
-            if p.peek() != Some(b'"') { p.advance(); break; }
+            if p.peek() != Some(b'"') {
+                p.advance();
+                break;
+            }
             let entry_key = p.read_string();
             p.skip_whitespace();
             p.advance();
             match entry_key {
-                "remaining_fraction" => { if !p.is_null() { fraction = p.read_f64(); } }
-                "reset_in_seconds" => { if !p.is_null() { reset_sec = p.read_i64(); } }
-                _ => { p.skip_value(); }
+                "remaining_fraction" => {
+                    if !p.is_null() {
+                        fraction = p.read_f64();
+                    }
+                }
+                "reset_in_seconds" => {
+                    if !p.is_null() {
+                        reset_sec = p.read_i64();
+                    }
+                }
+                _ => {
+                    p.skip_value();
+                }
             }
             p.skip_whitespace();
-            if p.peek() == Some(b',') { p.advance(); }
+            if p.peek() == Some(b',') {
+                p.advance();
+            }
         }
-        let pct = if fraction >= 0.0 { (fraction * 1000.0).round() / 10.0 } else { -1.0 };
+        let pct = if fraction >= 0.0 {
+            (fraction * 1000.0).round() / 10.0
+        } else {
+            -1.0
+        };
         match quota_key.as_str() {
-            "gemini-5h" => { input.gemini_5h_pct = pct; input.gemini_5h_reset = reset_sec; }
-            "gemini-weekly" => { input.gemini_weekly_pct = pct; input.gemini_weekly_reset = reset_sec; }
-            "3p-5h" => { input.third_party_5h_pct = pct; input.third_party_5h_reset = reset_sec; }
-            "3p-weekly" => { input.third_party_weekly_pct = pct; input.third_party_weekly_reset = reset_sec; }
+            "gemini-5h" => {
+                input.gemini_5h_pct = pct;
+                input.gemini_5h_reset = reset_sec;
+            }
+            "gemini-weekly" => {
+                input.gemini_weekly_pct = pct;
+                input.gemini_weekly_reset = reset_sec;
+            }
+            "3p-5h" => {
+                input.third_party_5h_pct = pct;
+                input.third_party_5h_reset = reset_sec;
+            }
+            "3p-weekly" => {
+                input.third_party_weekly_pct = pct;
+                input.third_party_weekly_reset = reset_sec;
+            }
             _ => {}
         }
         p.skip_whitespace();
-        if p.peek() == Some(b',') { p.advance(); }
+        if p.peek() == Some(b',') {
+            p.advance();
+        }
     }
 }

@@ -27,6 +27,8 @@ Antigravity CLI 向けの高度なステータスラインプラグイン。オ�
 - `statusline-windows-x86_64.exe` — Windows (x64)
 - `statusline-linux-x86_64` — Linux (x64)
 - `statusline-linux-arm64` — Linux (ARM64)
+- `statusline-macos-x86_64` — macOS (Intel)
+- `statusline-macos-arm64` — macOS (Apple Silicon)
 
 ### ソースからビルド
 

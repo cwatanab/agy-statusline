@@ -1,10 +1,9 @@
-use statusline::parse::{parse_input, ParsedInput};
+use statusline::parse::parse_input;
 
 #[test]
 fn empty_json() {
     let input = parse_input("{}");
     assert_eq!(input.agent_state, "idle");
-    assert_eq!(input.terminal_width, 80);
     assert!(!input.sandbox_enabled);
 }
 
@@ -22,7 +21,8 @@ fn agent_state_null() {
 
 #[test]
 fn simple_fields() {
-    let input = parse_input(r#"{
+    let input = parse_input(
+        r#"{
         "artifact_count": 5,
         "task_count": 3,
         "terminal_width": 120,
@@ -31,28 +31,25 @@ fn simple_fields() {
         "version": "1.0.0",
         "plan_tier": "pro",
         "email": "user@example.com"
-    }"#);
+    }"#,
+    );
     assert_eq!(input.artifact_count, 5);
     assert_eq!(input.task_count, 3);
-    assert_eq!(input.terminal_width, 120);
     assert_eq!(input.working_dir, "/home/user");
-    assert_eq!(input.conversation_id, "abc12345");
-    assert_eq!(input.version, "1.0.0");
-    assert_eq!(input.plan_tier, "pro");
-    assert_eq!(input.email, "user@example.com");
 }
 
 #[test]
 fn nullable_strings() {
     let input = parse_input(r#"{"cwd": null, "version": null, "email": null}"#);
     assert_eq!(input.working_dir, "");
-    assert_eq!(input.version, "");
-    assert_eq!(input.email, "");
 }
 
 #[test]
 fn subagents_count() {
-    assert_eq!(parse_input(r#"{"subagents": ["a","b","c"]}"#).subagent_count, 3);
+    assert_eq!(
+        parse_input(r#"{"subagents": ["a","b","c"]}"#).subagent_count,
+        3
+    );
     assert_eq!(parse_input(r#"{"subagents": null}"#).subagent_count, 0);
     assert_eq!(parse_input(r#"{"subagents": []}"#).subagent_count, 0);
 }
@@ -93,12 +90,14 @@ fn model_display_only() {
 
 #[test]
 fn context_window_full() {
-    let input = parse_input(r#"{"context_window": {
+    let input = parse_input(
+        r#"{"context_window": {
         "used_percentage": 45.5,
         "total_input_tokens": 15000,
         "total_output_tokens": 3000,
         "context_window_size": 200000
-    }}"#);
+    }}"#,
+    );
     assert!((input.used_percentage - 45.5).abs() < 0.01);
     assert_eq!(input.total_input_tokens, 15000);
     assert_eq!(input.total_output_tokens, 3000);
@@ -107,19 +106,23 @@ fn context_window_full() {
 
 #[test]
 fn current_usage() {
-    let input = parse_input(r#"{"context_window": {
+    let input = parse_input(
+        r#"{"context_window": {
         "current_usage": {"input_tokens": 500, "output_tokens": 200}
-    }}"#);
+    }}"#,
+    );
     assert_eq!(input.turn_input_tokens, 500);
     assert_eq!(input.turn_output_tokens, 200);
 }
 
 #[test]
 fn quota_gemini() {
-    let input = parse_input(r#"{"quota": {
+    let input = parse_input(
+        r#"{"quota": {
         "gemini-5h": {"remaining_fraction": 0.79, "reset_in_seconds": 3600},
         "gemini-weekly": {"remaining_fraction": 0.45, "reset_in_seconds": 86400}
-    }}"#);
+    }}"#,
+    );
     assert!((input.gemini_5h_pct - 79.0).abs() < 0.1);
     assert!((input.gemini_weekly_pct - 45.0).abs() < 0.1);
     assert_eq!(input.gemini_5h_reset, 3600);
@@ -128,17 +131,20 @@ fn quota_gemini() {
 
 #[test]
 fn quota_third_party() {
-    let input = parse_input(r#"{"quota": {
+    let input = parse_input(
+        r#"{"quota": {
         "3p-5h": {"remaining_fraction": 0.15, "reset_in_seconds": 1800},
         "3p-weekly": {"remaining_fraction": 0.05, "reset_in_seconds": 432000}
-    }}"#);
+    }}"#,
+    );
     assert!((input.third_party_5h_pct - 15.0).abs() < 0.1);
     assert!((input.third_party_weekly_pct - 5.0).abs() < 0.1);
 }
 
 #[test]
 fn quota_missing() {
-    let input = parse_input(r#"{"quota": {"gemini-5h": {}, "gemini-weekly": {"remaining_fraction": null}}}"#);
+    let input =
+        parse_input(r#"{"quota": {"gemini-5h": {}, "gemini-weekly": {"remaining_fraction": null}}}"#);
     assert!((input.gemini_5h_pct + 1.0).abs() < 0.01);
     assert!((input.gemini_weekly_pct + 1.0).abs() < 0.01);
 }
@@ -184,12 +190,7 @@ fn full_input() {
     assert_eq!(input.task_count, 3);
     assert_eq!(input.model_id, "claude-4");
     assert_eq!(input.model_display_name, "Claude 4 Sonnet");
-    assert_eq!(input.terminal_width, 120);
     assert_eq!(input.working_dir, "/home/user/projects/myapp");
-    assert_eq!(input.conversation_id, "abc12345def");
-    assert_eq!(input.version, "1.17.15");
-    assert_eq!(input.plan_tier, "pro");
-    assert_eq!(input.email, "user@example.com");
     assert!((input.gemini_5h_pct - 79.0).abs() < 0.1);
     assert!((input.gemini_weekly_pct - 45.0).abs() < 0.1);
     assert_eq!(input.gemini_5h_reset, 3600);
@@ -216,7 +217,16 @@ fn truncated_mid_string() {
 
 #[test]
 fn null_objects() {
-    let input = parse_input(r#"{"context_window": null, "sandbox": null, "model": null, "quota": null, "terminal_width": 120}"#);
-    assert_eq!(input.terminal_width, 120);
+    let input = parse_input(
+        r#"{"context_window": null, "sandbox": null, "model": null, "quota": null, "terminal_width": 120}"#,
+    );
     assert_eq!(input.model_id, "");
+}
+
+#[test]
+fn unknown_fields_skipped() {
+    let input = parse_input(
+        r#"{"terminal_width": 120, "version": "1.0", "agent_state": "working"}"#,
+    );
+    assert_eq!(input.agent_state, "working");
 }
