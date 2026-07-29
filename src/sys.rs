@@ -3,7 +3,10 @@ use std::process::Command;
 pub fn git_info(working_dir: &str) -> (String, bool) {
     let dir = if working_dir.is_empty() { "." } else { working_dir };
 
-    let mut git_branch_cmd = Command::new("git");
+    // Windows環境等で cmd.exe などのシェルを挟まないよう git.exe を直接指定
+    let git_bin = if cfg!(windows) { "git.exe" } else { "git" };
+
+    let mut git_branch_cmd = Command::new(git_bin);
     git_branch_cmd.env("CLINK_NOINJECT", "1");
     git_branch_cmd.args(["-C", dir, "rev-parse", "--abbrev-ref", "HEAD"]);
 
@@ -18,7 +21,7 @@ pub fn git_info(working_dir: &str) -> (String, bool) {
         return (String::new(), false);
     }
 
-    let mut git_dirty_cmd = Command::new("git");
+    let mut git_dirty_cmd = Command::new(git_bin);
     git_dirty_cmd.env("CLINK_NOINJECT", "1");
     git_dirty_cmd.args(["-C", dir, "status", "--porcelain"]);
 
