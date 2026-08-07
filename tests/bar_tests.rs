@@ -1,4 +1,4 @@
-use statusline::bar::{build_bar, build_quota_bar, quota_color, usage_color};
+use statusline::bar::{build_bar, make_quota_bar, usage_color};
 use statusline::format::{format_pct_display, format_reset_time, human_format};
 
 fn strip_ansi(s: &str) -> String {
@@ -20,34 +20,33 @@ fn strip_ansi(s: &str) -> String {
 
 #[test]
 fn build_bar_classic_full() {
-    let bar = build_bar(100.0, "\x1b[92m", true);
+    let bar = build_bar(100.0, 10, "76", true);
     assert_eq!(bar, "██████████");
 }
 
 #[test]
 fn build_bar_classic_empty() {
-    let bar = build_bar(0.0, "\x1b[92m", true);
+    let bar = build_bar(0.0, 10, "76", true);
     assert_eq!(bar, "··········");
 }
 
 #[test]
 fn build_bar_classic_partial() {
-    // 12.5% → 10 grades → 1 full + 2/8 partial
-    let bar = build_bar(12.5, "\x1b[92m", true);
+    let bar = build_bar(12.5, 10, "76", true);
     assert_eq!(bar.chars().count(), 10);
     assert!(bar.starts_with('█'));
 }
 
 #[test]
 fn build_bar_nerd_has_ansi() {
-    let bar = build_bar(50.0, "\x1b[92m", false);
+    let bar = build_bar(50.0, 10, "76", false);
     assert!(bar.contains('\x1b'));
     assert_eq!(strip_ansi(&bar).chars().count(), 10);
 }
 
 #[test]
 fn quota_bar_na() {
-    let out = build_quota_bar(-1.0, "5H", -1, true, "⌛");
+    let out = make_quota_bar(-1.0, "5H", 10, "37", -1, true, "⌛");
     let stripped = strip_ansi(&out);
     assert!(stripped.contains("N/A"));
     assert!(stripped.contains("5H"));
@@ -55,7 +54,7 @@ fn quota_bar_na() {
 
 #[test]
 fn quota_bar_with_reset() {
-    let out = build_quota_bar(79.0, "5H", 3600, true, "⌛");
+    let out = make_quota_bar(79.0, "5H", 10, "37", 3600, true, "⌛");
     let stripped = strip_ansi(&out);
     assert!(stripped.contains("5H"));
     assert!(stripped.contains("79%"));
@@ -64,9 +63,6 @@ fn quota_bar_with_reset() {
 
 #[test]
 fn colors() {
-    assert_eq!(quota_color(10.0), "\x1b[91m");
-    assert_eq!(quota_color(30.0), "\x1b[93m");
-    assert_eq!(quota_color(80.0), "\x1b[92m");
     assert_eq!(usage_color(10.0), "\x1b[92m");
     assert_eq!(usage_color(60.0), "\x1b[93m");
     assert_eq!(usage_color(90.0), "\x1b[91m");

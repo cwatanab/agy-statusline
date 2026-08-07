@@ -1,113 +1,183 @@
-// ─── Bar Drawing ──────────────────────────────────────────────────────────
+// ─── Bar & Badge Rendering ──────────────────────────────────────────────────
 
-const RESET: &str = "\x1b[0m";
-const BOLD: &str = "\x1b[1m";
-const ANSI_GRAY: &str = "\x1b[90m";
-const ANSI_BRIGHT_RED: &str = "\x1b[91m";
-const ANSI_BRIGHT_YELLOW: &str = "\x1b[93m";
-const ANSI_BRIGHT_GREEN: &str = "\x1b[92m";
-
-const BLOCK_CHARS: [&str; 8] = ["", "▏", "▎", "▍", "▌", "▋", "▊", "▉"];
-
-/// Build a 10-segment bar with 1/8-step partial blocks.
-/// `filled_pct` is 0.0..=100.0 (how much of the bar to fill).
-pub fn build_bar(filled_pct: f64, color: &str, classic: bool) -> String {
-    let filled_grades = ((filled_pct * 80.0) / 100.0).round() as i32;
-    let filled_grades = filled_grades.clamp(0, 80) as u32;
-    let filled_chars = filled_grades / 8;
-    let rem_grades = filled_grades % 8;
-
-    let block_full = format!("{color}█{RESET}");
-    let block_empty = format!("{ANSI_GRAY}·{RESET}");
-
-    let mut bar = String::with_capacity(if classic { 20 } else { 80 });
-    for i in 0..10u32 {
-        if i < filled_chars {
-            if classic {
-                bar.push('█');
-            } else {
-                bar.push_str(&block_full);
-            }
-        } else if i == filled_chars {
-            let block_char = BLOCK_CHARS[rem_grades as usize];
-            if classic {
-                if block_char.is_empty() {
-                    bar.push('·');
-                } else {
-                    bar.push_str(block_char);
-                }
-            } else if block_char.is_empty() {
-                bar.push_str(&block_empty);
-            } else {
-                bar.push_str(&format!("{color}{block_char}{RESET}"));
-            }
-        } else if classic {
-            bar.push('·');
-        } else {
-            bar.push_str(&block_empty);
-        }
-    }
-    bar
-}
-
-pub fn quota_color(remaining_pct: f64) -> &'static str {
-    match remaining_pct as u32 {
-        0..=19 => ANSI_BRIGHT_RED,
-        20..=49 => ANSI_BRIGHT_YELLOW,
-        _ => ANSI_BRIGHT_GREEN,
-    }
-}
+use std::fmt::Write;
+use crate::format::write_reset_time;
+use crate::icons::{to_ansi_color, BOLD, RESET};
 
 pub fn usage_color(used_pct: f64) -> &'static str {
     let pct_int = used_pct as u32;
     if pct_int >= 80 {
-        ANSI_BRIGHT_RED
+        "\x1b[91m"
     } else if pct_int >= 50 {
-        ANSI_BRIGHT_YELLOW
+        "\x1b[93m"
     } else {
-        ANSI_BRIGHT_GREEN
+        "\x1b[92m"
     }
 }
 
-pub fn build_quota_bar(
-    remaining_pct: f64,
+/// Render a progress bar (Context or Quota bar) directly into a String buffer.
+pub fn append_bar(buf: &mut String, filled_pct: f64, bar_len: usize, bar_color_num: &str, classic: bool) {
+    let val_int = (filled_pct.max(0.0) as usize).min(100);
+    let filled = val_int * bar_len / 100;
+    let remainder = (val_int * bar_len) % 100;
+
+    for i in 0..bar_len {
+        if i < filled {
+            if classic {
+                buf.push('█');
+            } else {
+                let _ = write!(buf, "\x1b[38;5;{bar_color_num}m█{RESET}");
+            }
+        } else if i == filled {
+            if classic {
+                if remainder >= 75 {
+                    buf.push('▓');
+                } else if remainder >= 50 {
+                    buf.push('▒');
+                } else if remainder >= 25 {
+                    buf.push('░');
+                } else {
+                    buf.push('·');
+                }
+            } else if remainder >= 75 {
+                let _ = write!(buf, "\x1b[38;5;{bar_color_num}m▓{RESET}\x1b[90m");
+            } else if remainder >= 50 {
+                let _ = write!(buf, "\x1b[38;5;{bar_color_num}m▒{RESET}\x1b[90m");
+            } else if remainder >= 25 {
+                let _ = write!(buf, "\x1b[38;5;{bar_color_num}m░{RESET}\x1b[90m");
+            } else {
+                buf.push_str("\x1b[38;5;236m░\x1b[0m");
+            }
+        } else if classic {
+            buf.push('·');
+        } else {
+            buf.push_str("\x1b[38;5;236m░\x1b[0m");
+        }
+    }
+}
+
+pub fn build_bar(filled_pct: f64, bar_len: usize, bar_color_num: &str, classic: bool) -> String {
+    let mut bar = String::with_capacity(64);
+    append_bar(&mut bar, filled_pct, bar_len, bar_color_num, classic);
+    bar
+}
+
+/// Render a rounded pill badge into a buffer.
+pub fn append_badge(buf: &mut String, icon: &str, val: &str, icon_color: &str, classic: bool) {
+    if classic {
+        let ansi_c = to_ansi_color(icon_color);
+        let _ = write!(buf, "{ansi_c}{icon} \x1b[97m{BOLD}{val}{RESET}");
+    } else {
+        let bg_color = "236";
+        let _ = write!(
+            buf,
+            "\x1b[38;5;{bg_color}m\x1b[48;5;{bg_color}m\x1b[38;5;{icon_color}m{icon} \x1b[38;5;255m\x1b[1m{val}\x1b[0m\x1b[38;5;{bg_color}m\x1b[0m"
+        );
+    }
+}
+
+pub fn make_badge(icon: &str, val: &str, icon_color: &str, classic: bool) -> String {
+    let mut buf = String::with_capacity(64);
+    append_badge(&mut buf, icon, val, icon_color, classic);
+    buf
+}
+
+/// Render quota bar (5H or 7D) into a buffer.
+pub fn append_quota_bar(
+    buf: &mut String,
+    val: f64,
     label: &str,
+    quota_bar_len: usize,
+    bar_color_num: &str,
+    reset_sec: i64,
+    classic: bool,
+    reset_icon: &str,
+) {
+    let separator = if classic {
+        "\x1b[90m · \x1b[0m"
+    } else {
+        " "
+    };
+
+    if val < 0.0 {
+        buf.push_str(separator);
+        let _ = write!(buf, "\x1b[97m{BOLD}{label}{RESET} \x1b[90m");
+        for _ in 0..quota_bar_len {
+            if classic { buf.push('·'); } else { buf.push('░'); }
+        }
+        buf.push_str(" N/A\x1b[0m");
+        return;
+    }
+
+    let val_int = val as usize;
+    let text_color = if val_int < 20 {
+        "197"
+    } else if val_int < 50 {
+        "214"
+    } else {
+        "76"
+    };
+
+    if classic {
+        let text_ansi = to_ansi_color(text_color);
+        let bar_ansi = to_ansi_color(bar_color_num);
+        buf.push_str(separator);
+        let _ = write!(buf, "\x1b[97m{BOLD}{label}{RESET} {bar_ansi}");
+        append_bar(buf, val, quota_bar_len, bar_color_num, classic);
+        let _ = write!(buf, "{RESET} {text_ansi}{val_int}%{RESET}");
+        if reset_sec > 0 {
+            let start_len = buf.len();
+            let _ = write!(buf, " {reset_icon}");
+            let icon_len = buf.len();
+            write_reset_time(buf, reset_sec);
+            if buf.len() == icon_len {
+                buf.truncate(start_len);
+            }
+        }
+    } else {
+        let label_bg = "236";
+        let bar_bg = "235";
+        buf.push_str(separator);
+        let _ = write!(
+            buf,
+            "\x1b[38;5;{label_bg}m\x1b[48;5;{label_bg}m\x1b[38;5;{text_color}m{label}\x1b[48;5;{bar_bg}m \x1b[0m"
+        );
+        append_bar(buf, val, quota_bar_len, bar_color_num, classic);
+        let _ = write!(
+            buf,
+            "\x1b[48;5;{label_bg}m \x1b[38;5;{text_color}m\x1b[1m{val_int}%\x1b[0m\x1b[38;5;{label_bg}m\x1b[0m"
+        );
+        if reset_sec > 0 {
+            let start_len = buf.len();
+            let _ = write!(buf, " {reset_icon}");
+            let icon_len = buf.len();
+            write_reset_time(buf, reset_sec);
+            if buf.len() == icon_len {
+                buf.truncate(start_len);
+            }
+        }
+    }
+}
+
+pub fn make_quota_bar(
+    val: f64,
+    label: &str,
+    quota_bar_len: usize,
+    bar_color_num: &str,
     reset_sec: i64,
     classic: bool,
     reset_icon: &str,
 ) -> String {
-    if remaining_pct < -0.5 {
-        let bar_empty: String = (0..10)
-            .map(|_| if classic { "·" } else { "░" })
-            .collect();
-        return format!("{ANSI_GRAY}{BOLD}{label}{RESET} {ANSI_GRAY}{bar_empty} N/A{RESET}");
-    }
-
-    let text_color = quota_color(remaining_pct);
-    let bar = build_bar(remaining_pct, text_color, classic);
-
-    let reset_label = if reset_sec > 0 {
-        format!(
-            " {reset_icon} {}",
-            crate::format::format_reset_time(reset_sec)
-        )
-    } else {
-        String::new()
-    };
-
-    let pct_str = if remaining_pct % 1.0 == 0.0 {
-        format!("{:.0}", remaining_pct)
-    } else {
-        format!("{:.1}", remaining_pct)
-    };
-
-    if classic {
-        format!(
-            "{text_color}{BOLD}{label}{RESET} {text_color}{bar}{RESET} {text_color}{pct_str}%{RESET}{reset_label}"
-        )
-    } else {
-        format!(
-            "{text_color}{BOLD}{label}{RESET} {bar} {text_color}{pct_str}%{RESET}{reset_label}"
-        )
-    }
+    let mut buf = String::with_capacity(128);
+    append_quota_bar(
+        &mut buf,
+        val,
+        label,
+        quota_bar_len,
+        bar_color_num,
+        reset_sec,
+        classic,
+        reset_icon,
+    );
+    buf
 }
