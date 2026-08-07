@@ -5,12 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.3.1] - 2026-08-07
-
-### Fixed
-- JSON 文字列（パスやダブルクォート等）の `\` エスケープシーケンス（`\\`, `\"`, `\n` 等）がパース時にアンエスケープされずそのまま出力される不具合を修正。エスケープ非検出時は `Cow::Borrowed` による Zero-Allocation 高速性を維持。
-
-## [0.3.0] - 2026-08-07
+## [0.2.2] - 2026-08-07
 
 ### Added
 - パース・レンダリング性能を測定する統合マイクロベンチマークテスト (`tests/perf_benchmark.rs`) を追加。
@@ -20,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **シングルバッファレンダリング**: レンダリング時の中間配列割り当て (`Vec<String>`) および重厚な `format!` マクロを撤廃し、直書きストリーミングエンジンへ刷新。
 - **ゼロプロセス Git ブランチ取得**: 外部 `git.exe` プロセス起動による遅延を解消し、`.git/HEAD` を直接参照する超高速探査アルゴリズムを導入 (実行速度 〜6.2ms)。
 - **バイナリサイズ削減**: プロファイル設定およびリンク最適化によりバイナリサイズを約 30% 削減 (`287KB` → `203KB`)。
+
+### Fixed
+- JSON 文字列（パスやダブルクォート等）の `\` エスケープシーケンス（`\\`, `\"`, `\n` 等）がパース時にアンエスケープされずそのまま出力される不具合を修正。`Cow<'a, str>` によるスマートアンエスケープによりエスケープ非検出時は Zero-Allocation 高速性を維持。
 
 ## [0.2.1] - 2026-07-29
 
@@ -45,7 +43,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 画面幅によるナロー/ワイドの分岐およびモデル名切り詰め処理を完全に廃止し、常にすべての詳細情報を左詰めで一列に表示するレイアウトに統一。
 - 各表示要素（モデル名、VCS等）の装飾カラーコードを削除し、デフォルトテキスト色に統一。
 
-[0.3.1]: https://github.com/cwatanab/agy-statusline/compare/v0.3.0...v0.3.1
-[0.3.0]: https://github.com/cwatanab/agy-statusline/compare/v0.2.1...v0.3.0
+[0.2.2]: https://github.com/cwatanab/agy-statusline/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/cwatanab/agy-statusline/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/cwatanab/agy-statusline/compare/v0.1.0...v0.2.0
