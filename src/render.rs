@@ -28,7 +28,7 @@ fn is_3p_model(model_id: &str) -> bool {
 
 #[inline]
 fn resolve_quota(input: &ParsedInput) -> QuotaInfo {
-    let is_3p = is_3p_model(input.model_id);
+    let is_3p = is_3p_model(input.model_id.as_ref());
     let (five_hour_pct, weekly_pct, five_hour_reset, weekly_reset) = if is_3p {
         if input.third_party_5h_pct >= 0.0 || input.third_party_weekly_pct >= 0.0 {
             (
@@ -116,7 +116,7 @@ pub fn render_line(input: &ParsedInput, classic: bool, override_cols: Option<usi
     let mut seg_count = 0;
 
     // 1.1 State
-    match input.agent_state {
+    match input.agent_state.as_ref() {
         "idle" => {
             let _ = write!(seg_bufs[seg_count], "{} READY", icons.state_ready);
             seg_bgs[seg_count] = icons.theme.bg_ready;
@@ -151,8 +151,8 @@ pub fn render_line(input: &ParsedInput, classic: bool, override_cols: Option<usi
 
     // 1.2 VCS Branch
     let (vcs_branch, vcs_dirty) = git_info(
-        input.working_dir,
-        input.vcs_branch,
+        input.working_dir.as_ref(),
+        input.vcs_branch.as_ref(),
         input.vcs_dirty,
     );
     if !vcs_branch.is_empty() {
@@ -168,9 +168,9 @@ pub fn render_line(input: &ParsedInput, classic: bool, override_cols: Option<usi
 
     // 1.3 Model
     let model_disp = if !input.model_display_name.is_empty() {
-        input.model_display_name
+        input.model_display_name.as_ref()
     } else {
-        input.model_id
+        input.model_id.as_ref()
     };
     if !model_disp.is_empty() {
         if classic || icons.model.is_empty() {
@@ -184,7 +184,7 @@ pub fn render_line(input: &ParsedInput, classic: bool, override_cols: Option<usi
     }
 
     // 1.4 Directory
-    let cwd_short = shorten_path(input.working_dir);
+    let cwd_short = shorten_path(input.working_dir.as_ref());
     if !cwd_short.is_empty() {
         if classic || icons.dir.is_empty() {
             seg_bufs[seg_count] = cwd_short;
@@ -201,9 +201,9 @@ pub fn render_line(input: &ParsedInput, classic: bool, override_cols: Option<usi
         if !input.plan_tier.is_empty() && !input.email.is_empty() {
             let _ = write!(seg_bufs[seg_count], "{} ({})", input.plan_tier, input.email);
         } else if !input.plan_tier.is_empty() {
-            seg_bufs[seg_count].push_str(input.plan_tier);
+            seg_bufs[seg_count].push_str(input.plan_tier.as_ref());
         } else {
-            seg_bufs[seg_count].push_str(input.email);
+            seg_bufs[seg_count].push_str(input.email.as_ref());
         }
         if !classic {
             seg_bufs[seg_count].insert_str(0, "👤 ");
@@ -218,7 +218,7 @@ pub fn render_line(input: &ParsedInput, classic: bool, override_cols: Option<usi
         let conv_prefix = if input.conversation_id.len() > 8 {
             &input.conversation_id[..8]
         } else {
-            input.conversation_id
+            input.conversation_id.as_ref()
         };
         if classic || icons.conv.is_empty() {
             seg_bufs[seg_count].push_str(conv_prefix);
@@ -512,6 +512,7 @@ pub fn render_line(input: &ParsedInput, classic: bool, override_cols: Option<usi
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::borrow::Cow;
 
     #[test]
     fn test_is_3p_model() {
@@ -527,7 +528,7 @@ mod tests {
     #[test]
     fn test_resolve_quota_3p_priority() {
         let mut input = ParsedInput::default();
-        input.model_id = "claude-3-5-sonnet";
+        input.model_id = Cow::Borrowed("claude-3-5-sonnet");
         input.third_party_5h_pct = 75.0;
         input.third_party_weekly_pct = 50.0;
         input.gemini_5h_pct = 90.0;
@@ -540,7 +541,7 @@ mod tests {
     #[test]
     fn test_resolve_quota_gemini_fallback() {
         let mut input = ParsedInput::default();
-        input.model_id = "gemini-1.5-pro";
+        input.model_id = Cow::Borrowed("gemini-1.5-pro");
         input.gemini_5h_pct = 85.0;
         input.gemini_weekly_pct = 40.0;
 

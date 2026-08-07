@@ -1,17 +1,19 @@
 // ─── Parsed Input ─────────────────────────────────────────────────────────
 
+use std::borrow::Cow;
+
 #[derive(Debug, PartialEq)]
 pub struct ParsedInput<'a> {
-    pub agent_state: &'a str,
+    pub agent_state: Cow<'a, str>,
     pub used_percentage: f64,
     pub sandbox_enabled: bool,
     pub sandbox_allow_network: bool,
     pub artifact_count: u32,
     pub subagent_count: u32,
     pub task_count: u32,
-    pub model_id: &'a str,
-    pub model_display_name: &'a str,
-    pub working_dir: &'a str,
+    pub model_id: Cow<'a, str>,
+    pub model_display_name: Cow<'a, str>,
+    pub working_dir: Cow<'a, str>,
     pub total_input_tokens: u64,
     pub total_output_tokens: u64,
     pub context_window_size: u64,
@@ -26,28 +28,28 @@ pub struct ParsedInput<'a> {
     pub third_party_5h_reset: i64,
     pub third_party_weekly_reset: i64,
     pub terminal_width: usize,
-    pub version: &'a str,
-    pub plan_tier: &'a str,
-    pub email: &'a str,
-    pub conversation_id: &'a str,
-    pub product: &'a str,
-    pub vcs_branch: &'a str,
+    pub version: Cow<'a, str>,
+    pub plan_tier: Cow<'a, str>,
+    pub email: Cow<'a, str>,
+    pub conversation_id: Cow<'a, str>,
+    pub product: Cow<'a, str>,
+    pub vcs_branch: Cow<'a, str>,
     pub vcs_dirty: bool,
 }
 
 impl<'a> Default for ParsedInput<'a> {
     fn default() -> Self {
         ParsedInput {
-            agent_state: "idle",
+            agent_state: Cow::Borrowed("idle"),
             used_percentage: 0.0,
             sandbox_enabled: false,
             sandbox_allow_network: false,
             artifact_count: 0,
             subagent_count: 0,
             task_count: 0,
-            model_id: "",
-            model_display_name: "",
-            working_dir: "",
+            model_id: Cow::Borrowed(""),
+            model_display_name: Cow::Borrowed(""),
+            working_dir: Cow::Borrowed(""),
             total_input_tokens: 0,
             total_output_tokens: 0,
             context_window_size: 0,
@@ -62,22 +64,52 @@ impl<'a> Default for ParsedInput<'a> {
             third_party_5h_reset: -1,
             third_party_weekly_reset: -1,
             terminal_width: 80,
-            version: "",
-            plan_tier: "",
-            email: "",
-            conversation_id: "",
-            product: "",
-            vcs_branch: "",
+            version: Cow::Borrowed(""),
+            plan_tier: Cow::Borrowed(""),
+            email: Cow::Borrowed(""),
+            conversation_id: Cow::Borrowed(""),
+            product: Cow::Borrowed(""),
+            vcs_branch: Cow::Borrowed(""),
             vcs_dirty: false,
         }
     }
 }
 
-// ─── Zero-Copy JSON Parser ──────────────────────────────────────────────────────────
+// ─── Zero-Copy & Smart Unescaping JSON Parser ─────────────────────────────
 
 struct JsonParser<'a> {
     bytes: &'a [u8],
     pos: usize,
+}
+
+fn unescape_json(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    let mut chars = raw.chars();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            if let Some(next) = chars.next() {
+                match next {
+                    '"' => out.push('"'),
+                    '\\' => out.push('\\'),
+                    '/' => out.push('/'),
+                    'b' => out.push('\x08'),
+                    'f' => out.push('\x0c'),
+                    'n' => out.push('\n'),
+                    'r' => out.push('\r'),
+                    't' => out.push('\t'),
+                    other => {
+                        out.push('\\');
+                        out.push(other);
+                    }
+                }
+            } else {
+                out.push('\\');
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
 }
 
 impl<'a> JsonParser<'a> {
@@ -121,24 +153,42 @@ impl<'a> JsonParser<'a> {
     }
 
     #[inline]
-    fn read_string(&mut self) -> &'a str {
+    fn read_string(&mut self) -> Cow<'a, str> {
         self.skip_whitespace();
         if self.pos >= self.bytes.len() || self.bytes[self.pos] != b'"' {
-            return "";
+            return Cow::Borrowed("");
         }
         self.advance();
         let start = self.pos;
-        while self.pos < self.bytes.len() && self.bytes[self.pos] != b'"' {
-            if self.bytes[self.pos] == b'\\' {
+        let mut has_escape = false;
+
+        while self.pos < self.bytes.len() {
+            let b = self.bytes[self.pos];
+            if b == b'"' {
+                break;
+            }
+            if b == b'\\' {
+                has_escape = true;
                 self.pos += 1;
             }
             self.pos += 1;
         }
+
         let end = self.pos;
         if self.pos < self.bytes.len() {
             self.advance();
         }
-        std::str::from_utf8(&self.bytes[start..end]).unwrap_or("")
+
+        let raw = match std::str::from_utf8(&self.bytes[start..end]) {
+            Ok(s) => s,
+            Err(_) => return Cow::Borrowed(""),
+        };
+
+        if !has_escape {
+            Cow::Borrowed(raw)
+        } else {
+            Cow::Owned(unescape_json(raw))
+        }
     }
 
     #[inline]
@@ -305,7 +355,7 @@ pub fn parse_input<'a>(json: &'a str) -> ParsedInput<'a> {
                 } else {
                     continue;
                 }
-                parse_field(&mut p, &mut input, key);
+                parse_field(&mut p, &mut input, &key);
                 p.skip_whitespace();
                 if p.peek() == Some(b',') {
                     p.advance();
@@ -416,7 +466,7 @@ fn parse_vcs<'a>(p: &mut JsonParser<'a>, input: &mut ParsedInput<'a>) {
             p.advance();
             break;
         }
-        match p.read_string() {
+        match p.read_string().as_ref() {
             "branch" => {
                 p.skip_whitespace();
                 p.advance();
@@ -456,7 +506,7 @@ fn parse_context_window<'a>(p: &mut JsonParser<'a>, input: &mut ParsedInput<'a>)
         if p.peek() == Some(b':') {
             p.advance();
         }
-        match key {
+        match key.as_ref() {
             "used_percentage" => input.used_percentage = p.read_f64(),
             "total_input_tokens" => input.total_input_tokens = p.read_u64(),
             "total_output_tokens" => input.total_output_tokens = p.read_u64(),
@@ -470,7 +520,7 @@ fn parse_context_window<'a>(p: &mut JsonParser<'a>, input: &mut ParsedInput<'a>)
                         p.advance();
                         break;
                     }
-                    match p.read_string() {
+                    match p.read_string().as_ref() {
                         "input_tokens" => {
                             p.skip_whitespace();
                             p.advance();
@@ -513,7 +563,7 @@ fn parse_sandbox<'a>(p: &mut JsonParser<'a>, input: &mut ParsedInput<'a>) {
             p.advance();
             break;
         }
-        match p.read_string() {
+        match p.read_string().as_ref() {
             "enabled" => {
                 p.skip_whitespace();
                 p.advance();
@@ -546,7 +596,7 @@ fn parse_model<'a>(p: &mut JsonParser<'a>, input: &mut ParsedInput<'a>) {
             p.advance();
             break;
         }
-        match p.read_string() {
+        match p.read_string().as_ref() {
             "id" => {
                 p.skip_whitespace();
                 p.advance();
@@ -599,7 +649,7 @@ fn parse_quota<'a>(p: &mut JsonParser<'a>, input: &mut ParsedInput<'a>) {
             let entry_key = p.read_string();
             p.skip_whitespace();
             p.advance();
-            match entry_key {
+            match entry_key.as_ref() {
                 "remaining_fraction" => {
                     if !p.is_null() {
                         fraction = p.read_f64();
@@ -624,7 +674,7 @@ fn parse_quota<'a>(p: &mut JsonParser<'a>, input: &mut ParsedInput<'a>) {
         } else {
             -1.0
         };
-        match quota_key {
+        match quota_key.as_ref() {
             "gemini-5h" => {
                 input.gemini_5h_pct = pct;
                 input.gemini_5h_reset = reset_sec;

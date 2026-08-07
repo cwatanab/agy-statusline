@@ -39,6 +39,13 @@ fn simple_fields() {
 }
 
 #[test]
+fn escaped_string_handling() {
+    let input = parse_input(r#"{"cwd": "C:\\Users\\test\\path", "model": {"display_name": "Model \"Pro\""}}"#);
+    assert_eq!(input.working_dir, r#"C:\Users\test\path"#);
+    assert_eq!(input.model_display_name, r#"Model "Pro""#);
+}
+
+#[test]
 fn nullable_strings() {
     let input = parse_input(r#"{"cwd": null, "version": null, "email": null}"#);
     assert_eq!(input.working_dir, "");
