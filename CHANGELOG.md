@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.3] - 2026-09-04
+
+### Added & Improved
+- **コンテキストウィンドウ & トークン消費量表示**: `ctx` バッジ内に現在のトークン消費量およびコンテキストウィンドウ上限値（`(${CTX_USED}/${CTX_LIMIT})`）の表示を追加（Classic ANSI および Nerd Font モード双方に対応）。
+- **高精度なコンテキストメトリクス抽出**: アクティブなコンテキストトークン数（`total_tokens` / `total_input_tokens`）を正確に追跡し、`context_window_size` が未指定の場合のパーセンテージからの逆算フォールバック処理を追加。
+- **ヒューマンフォーマット丸め処理の改善**: `human_format` における `K` および `M` 単位の丸め精度を向上（四捨五入の適正化）。
+- **整数パース & セグメント描画の最適化**: ゼロアロケーションなバイト直接整数パースとセグメント装飾のバッファ直書きにより、パース＆描画速度をさらに約12%向上。
+
+### Fixed & Hardened
+- **ワイド画面での不要な改行分割を防止 (Issue #59)**: Classic モードでのパッキング判定を枠線パディングなしの端末幅（`cols - 1`）へ修正し、ワイドバー（20/15セグメント）の切り替え閾値を 235 カラムへ調整。
+
 ## [0.2.2] - 2026-08-07
 
 ### Added
@@ -43,6 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 画面幅によるナロー/ワイドの分岐およびモデル名切り詰め処理を完全に廃止し、常にすべての詳細情報を左詰めで一列に表示するレイアウトに統一。
 - 各表示要素（モデル名、VCS等）の装飾カラーコードを削除し、デフォルトテキスト色に統一。
 
+[0.2.3]: https://github.com/cwatanab/agy-statusline/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/cwatanab/agy-statusline/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/cwatanab/agy-statusline/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/cwatanab/agy-statusline/compare/v0.1.0...v0.2.0

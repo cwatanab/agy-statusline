@@ -72,7 +72,13 @@ fn colors() {
 fn human_format_units() {
     assert_eq!(human_format(500), "500");
     assert_eq!(human_format(1500), "1.5K");
+    assert_eq!(human_format(1550), "1.6K");
+    assert_eq!(human_format(1449), "1.4K");
+    assert_eq!(human_format(1450), "1.5K");
+    assert_eq!(human_format(999_400), "999.4K");
+    assert_eq!(human_format(999_500), "1.0M");
     assert_eq!(human_format(1_500_000), "1.5M");
+    assert_eq!(human_format(1_550_000), "1.6M");
 }
 
 #[test]

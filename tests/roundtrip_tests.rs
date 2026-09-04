@@ -155,6 +155,7 @@ fn context_bar_shows_percentage() {
     let out = run_statusline(json, &[]).unwrap();
     let stripped = strip_ansi(&out);
     assert!(stripped.contains("45.0%"), "Expected '45.0%' in: {}", stripped);
+    assert!(stripped.contains("(15.0K/200.0K)"), "Expected '(15.0K/200.0K)' in: {}", stripped);
 }
 
 #[test]

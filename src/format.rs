@@ -4,10 +4,12 @@ use std::env;
 use std::fmt::Write;
 
 pub fn write_human_format(buf: &mut String, num: u64) {
-    if num >= 1_000_000 {
-        let _ = write!(buf, "{}.{}M", num / 1_000_000, (num % 1_000_000) / 100_000);
+    if num >= 999_500 {
+        let rounded = num + 50_000;
+        let _ = write!(buf, "{}.{}M", rounded / 1_000_000, (rounded % 1_000_000) / 100_000);
     } else if num >= 1000 {
-        let _ = write!(buf, "{}.{}K", num / 1000, (num % 1000) / 100);
+        let rounded = num + 50;
+        let _ = write!(buf, "{}.{}K", rounded / 1000, (rounded % 1000) / 100);
     } else {
         let _ = write!(buf, "{num}");
     }

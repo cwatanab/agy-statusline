@@ -16,6 +16,7 @@ pub struct ParsedInput<'a> {
     pub working_dir: Cow<'a, str>,
     pub total_input_tokens: u64,
     pub total_output_tokens: u64,
+    pub total_tokens: u64,
     pub context_window_size: u64,
     pub turn_input_tokens: u64,
     pub turn_output_tokens: u64,
@@ -52,6 +53,7 @@ impl<'a> Default for ParsedInput<'a> {
             working_dir: Cow::Borrowed(""),
             total_input_tokens: 0,
             total_output_tokens: 0,
+            total_tokens: 0,
             context_window_size: 0,
             turn_input_tokens: 0,
             turn_output_tokens: 0,
@@ -198,17 +200,72 @@ impl<'a> JsonParser<'a> {
 
     #[inline]
     fn read_u64(&mut self) -> u64 {
-        self.read_number_str().parse().unwrap_or(0)
+        self.skip_whitespace();
+        let mut val = 0u64;
+        let mut has_digits = false;
+        while self.pos < self.bytes.len() {
+            let b = self.bytes[self.pos];
+            if b.is_ascii_digit() {
+                val = val.wrapping_mul(10).wrapping_add((b - b'0') as u64);
+                has_digits = true;
+                self.pos += 1;
+            } else if b == b'.' || b == b'e' || b == b'E' || b == b'+' || b == b'-' {
+                // In case of float or other notation, fallback to string parse
+                self.pos += 1;
+                while self.pos < self.bytes.len() {
+                    match self.bytes[self.pos] {
+                        b'-' | b'0'..=b'9' | b'.' | b'e' | b'E' | b'+' => self.pos += 1,
+                        _ => break,
+                    }
+                }
+                return val;
+            } else {
+                break;
+            }
+        }
+        if has_digits {
+            val
+        } else {
+            0
+        }
     }
 
     #[inline]
     fn read_u32(&mut self) -> u32 {
-        self.read_number_str().parse().unwrap_or(0)
+        self.read_u64() as u32
     }
 
     #[inline]
     fn read_i64(&mut self) -> i64 {
-        self.read_number_str().parse().unwrap_or(-1)
+        self.skip_whitespace();
+        if self.pos >= self.bytes.len() {
+            return -1;
+        }
+        let is_neg = if self.bytes[self.pos] == b'-' {
+            self.pos += 1;
+            true
+        } else {
+            false
+        };
+        let mut val = 0i64;
+        let mut has_digits = false;
+        while self.pos < self.bytes.len() {
+            let b = self.bytes[self.pos];
+            if b.is_ascii_digit() {
+                val = val.wrapping_mul(10).wrapping_add((b - b'0') as i64);
+                has_digits = true;
+                self.pos += 1;
+            } else {
+                break;
+            }
+        }
+        if !has_digits {
+            -1
+        } else if is_neg {
+            -val
+        } else {
+            val
+        }
     }
 
     #[inline]
@@ -371,6 +428,22 @@ pub fn parse_input<'a>(json: &'a str) -> ParsedInput<'a> {
         }
     }
 
+    if input.context_window_size == 0 && input.used_percentage > 0.0 {
+        let ctx_used = if input.total_tokens > 0 {
+            input.total_tokens
+        } else if input.total_input_tokens > 0 {
+            input.total_input_tokens
+        } else {
+            input.total_input_tokens + input.total_output_tokens
+        };
+        if ctx_used > 0 {
+            let pct_whole = input.used_percentage.trunc() as u64;
+            if pct_whole > 0 {
+                input.context_window_size = ctx_used * 100 / pct_whole;
+            }
+        }
+    }
+
     input
 }
 
@@ -510,6 +583,7 @@ fn parse_context_window<'a>(p: &mut JsonParser<'a>, input: &mut ParsedInput<'a>)
             "used_percentage" => input.used_percentage = p.read_f64(),
             "total_input_tokens" => input.total_input_tokens = p.read_u64(),
             "total_output_tokens" => input.total_output_tokens = p.read_u64(),
+            "total_tokens" => input.total_tokens = p.read_u64(),
             "context_window_size" => input.context_window_size = p.read_u64(),
             "current_usage" => {
                 p.skip_whitespace();

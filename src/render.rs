@@ -85,11 +85,12 @@ fn append_segment(
         return;
     }
 
-    let fg_sep = bg_color.replace("48;", "38;");
-    if let Some(next) = next_bg {
-        let _ = write!(buf, "{bg_color}{fg_text} {text} {next}{fg_sep}\u{E0B0}{RESET}");
+    let next_str = next_bg.unwrap_or("\x1b[0m");
+    if let Some(code) = bg_color.strip_prefix("\x1b[48;5;") {
+        let _ = write!(buf, "{bg_color}{fg_text} {text} {next_str}\x1b[38;5;{code}\u{E0B0}{RESET}");
     } else {
-        let _ = write!(buf, "{bg_color}{fg_text} {text} \x1b[0m{fg_sep}\u{E0B0}{RESET}");
+        let fg_sep = bg_color.replace("48;", "38;");
+        let _ = write!(buf, "{bg_color}{fg_text} {text} {next_str}{fg_sep}\u{E0B0}{RESET}");
     }
 }
 
@@ -97,7 +98,8 @@ pub fn render_line(input: &ParsedInput, classic: bool, override_cols: Option<usi
     let icons = select_icons(classic);
     let cols = override_cols.unwrap_or(input.terminal_width).max(40);
 
-    let (bar_len, quota_bar_len) = if cols >= 180 {
+    // Wide bars (20/15 segments) require >= 235 columns to fit alongside full telemetry without split
+    let (bar_len, quota_bar_len) = if cols >= 235 {
         (20, 15)
     } else {
         (10, 8)
@@ -287,12 +289,31 @@ pub fn render_line(input: &ParsedInput, classic: bool, override_cols: Option<usi
     let pct_int = input.used_percentage as usize;
     let fill_color = usage_color(input.used_percentage);
 
+    let ctx_used = if input.total_tokens > 0 {
+        input.total_tokens
+    } else if input.total_input_tokens > 0 {
+        input.total_input_tokens
+    } else {
+        input.total_input_tokens + input.total_output_tokens
+    };
+
     if classic {
         let _ = write!(badge_bufs[badge_count], "\x1b[90mctx {fill_color}");
         append_bar(&mut badge_bufs[badge_count], input.used_percentage, bar_len, "76", true);
         let _ = write!(badge_bufs[badge_count], " \x1b[97m{BOLD}");
         write_pct_display(&mut badge_bufs[badge_count], input.used_percentage);
         badge_bufs[badge_count].push_str("%\x1b[0m");
+        if input.context_window_size > 0 {
+            badge_bufs[badge_count].push_str(" \x1b[90m(");
+            write_human_format(&mut badge_bufs[badge_count], ctx_used);
+            badge_bufs[badge_count].push('/');
+            write_human_format(&mut badge_bufs[badge_count], input.context_window_size);
+            badge_bufs[badge_count].push_str(")\x1b[0m");
+        } else if ctx_used > 0 {
+            badge_bufs[badge_count].push_str(" \x1b[90m(");
+            write_human_format(&mut badge_bufs[badge_count], ctx_used);
+            badge_bufs[badge_count].push_str(")\x1b[0m");
+        }
     } else {
         let bar_c = if pct_int >= 90 { "197" } else { "214" };
         let label_bg = "236";
@@ -305,7 +326,19 @@ pub fn render_line(input: &ParsedInput, classic: bool, override_cols: Option<usi
         append_bar(&mut badge_bufs[badge_count], input.used_percentage, bar_len, bar_c, false);
         let _ = write!(badge_bufs[badge_count], "\x1b[48;5;{label_bg}m \x1b[38;5;220m\x1b[1m");
         write_pct_display(&mut badge_bufs[badge_count], input.used_percentage);
-        let _ = write!(badge_bufs[badge_count], "%\x1b[0m\x1b[38;5;{label_bg}m\x1b[0m");
+        badge_bufs[badge_count].push_str("%\x1b[22m");
+        if input.context_window_size > 0 {
+            badge_bufs[badge_count].push_str(" \x1b[38;5;250m(");
+            write_human_format(&mut badge_bufs[badge_count], ctx_used);
+            badge_bufs[badge_count].push('/');
+            write_human_format(&mut badge_bufs[badge_count], input.context_window_size);
+            badge_bufs[badge_count].push(')');
+        } else if ctx_used > 0 {
+            badge_bufs[badge_count].push_str(" \x1b[38;5;250m(");
+            write_human_format(&mut badge_bufs[badge_count], ctx_used);
+            badge_bufs[badge_count].push(')');
+        }
+        let _ = write!(badge_bufs[badge_count], "\x1b[0m\x1b[38;5;{label_bg}m\x1b[0m");
     }
     badge_count += 1;
 
@@ -434,7 +467,12 @@ pub fn render_line(input: &ParsedInput, classic: bool, override_cols: Option<usi
     }
 
     // ─── 3. Dynamic Line-Packing Engine & Framing ────────────────────────────
-    let max_vis = cols.saturating_sub(4).max(40);
+    // Classic mode lacks box-drawing borders (╭─, ├─, ╰─), so it uses full terminal width
+    let max_vis = if classic {
+        cols.saturating_sub(1).max(40)
+    } else {
+        cols.saturating_sub(4).max(40)
+    };
 
     let mut line_starts: [usize; 12] = [0; 12];
     let mut line_counts: [usize; 12] = [0; 12];

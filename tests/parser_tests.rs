@@ -112,6 +112,18 @@ fn context_window_full() {
 }
 
 #[test]
+fn context_window_size_fallback() {
+    let input = parse_input(
+        r#"{"context_window": {
+        "used_percentage": 25.0,
+        "total_input_tokens": 50000,
+        "total_output_tokens": 5000
+    }}"#,
+    );
+    assert_eq!(input.context_window_size, 200000);
+}
+
+#[test]
 fn current_usage() {
     let input = parse_input(
         r#"{"context_window": {
