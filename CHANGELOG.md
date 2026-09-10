@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.5] - 2026-09-11
+
+### Added & Improved
+- **Vim エディタモード表示 (Issue #62)**: LINE1 にアクティブな Vim モード（`NORMAL`, `INSERT`, `VISUAL`, `VISUAL LINE`, その他）の動的バッジを追加。Classic ANSI（`[NORMAL]`等）および Nerd Font モード双方に対応し、`--legend` にも記載。
+- **モデル別クォータ判定の整合性**: モデル名（Claude, GPT, OpenAI）に応じた3PクォータとGeminiクォータの自動選択ロジックを同期。
+- **サブエージェント表示の適正化**: サブエージェント数が 0 の場合はバッジを非表示にし、1件以上起動している時のみ即時表示。
+
+### Fixed & Hardened
+- **電源・AC電源検出エンジンの堅牢化 (Issue #70)**:
+  - AC電源接続時やバッテリー非搭載デスクトップ環境でバッテリーアイコン（`🔋 BAT`）に固定されてしまう不具合を解消。
+  - ワイヤレスマウスやキーボード等の周辺機器デバイス（`scope: Device`、`hidpp_*` 等）がホストのAC電源判定を上書きしないよう除外フィルタを実装。
+  - 主電源（`type: Mains`）、USB-PD充電器（`online: 1`）、およびバッテリー充電状態（`Charging`, `Full`, `Not charging`）を総合評価してAC電源を判定。
+  - テスト用環境変数 `STATUSLINE_POWER_SUPPLY_DIR` をサポートし、自動テストカバレッジを拡充。
+- **Classic モードでの AC バッジ重複解消**: `make_badge` でアイコン名とラベルが一致する場合に `AC AC` と重複表示されないよう正規化。
+- **テストスイート拡充**: 16件の公式 JSON フィクスチャの追加、Vim モード・電源検出・サブエージェント非表示・Classic バッジ正規化の単体テストおよび往復テストを追加。
+
 ## [0.2.3] - 2026-09-04
 
 ### Added & Improved

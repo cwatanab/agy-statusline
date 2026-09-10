@@ -1,6 +1,6 @@
 use std::env;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 pub struct SysInfo {
     pub mem_pct: Option<u32>,
@@ -108,35 +108,101 @@ pub fn get_host_info() -> Option<String> {
 }
 
 pub fn get_power_info() -> Option<PowerInfo> {
-    if cfg!(target_os = "linux") {
-        let sys_ps = Path::new("/sys/class/power_supply");
-        if sys_ps.exists() {
-            let mut online = true;
-            let mut cap = None;
+    let env_dir = env::var("STATUSLINE_POWER_SUPPLY_DIR")
+        .ok()
+        .filter(|s| !s.trim().is_empty());
+    let is_linux = cfg!(target_os = "linux");
 
-            if let Ok(entries) = fs::read_dir(sys_ps) {
+    if is_linux || env_dir.is_some() {
+        let default_path = PathBuf::from("/sys/class/power_supply");
+        let power_dir = env_dir.map(PathBuf::from).unwrap_or(default_path);
+
+        if power_dir.is_dir() {
+            let mut ac_connected = false;
+            let mut has_sys_battery = false;
+            let mut has_ac_adapter = false;
+            let mut sys_bat_cap = None;
+
+            if let Ok(entries) = fs::read_dir(&power_dir) {
                 for entry in entries.flatten() {
                     let path = entry.path();
-                    let online_file = path.join("online");
-                    if online_file.exists() {
-                        if let Ok(val) = fs::read_to_string(&online_file) {
-                            if val.trim() == "0" {
-                                online = false;
-                            }
+                    if !path.is_dir() {
+                        continue;
+                    }
+                    let dev_name = entry.file_name().to_string_lossy().to_string();
+
+                    // Skip peripheral devices (mice, keyboards, controllers)
+                    if let Ok(scope) = fs::read_to_string(path.join("scope")) {
+                        if scope.trim() == "Device" {
+                            continue;
                         }
                     }
-                    let cap_file = path.join("capacity");
-                    if cap_file.exists() {
-                        if let Ok(val) = fs::read_to_string(&cap_file) {
-                            cap = val.trim().parse::<u32>().ok();
+                    if dev_name.starts_with("hidpp_")
+                        || dev_name.contains("mouse")
+                        || dev_name.contains("keyboard")
+                    {
+                        continue;
+                    }
+
+                    let psy_type = fs::read_to_string(path.join("type"))
+                        .map(|s| s.trim().to_string())
+                        .unwrap_or_default();
+
+                    // Check for AC / Mains / USB chargers
+                    if psy_type == "Mains"
+                        || dev_name.starts_with("AC")
+                        || dev_name.starts_with("ACAD")
+                        || dev_name.starts_with("ADP")
+                        || dev_name.starts_with("Mains")
+                    {
+                        has_ac_adapter = true;
+                        if let Ok(online) = fs::read_to_string(path.join("online")) {
+                            if online.trim() == "1" {
+                                ac_connected = true;
+                            }
+                        }
+                    } else if psy_type == "USB" {
+                        if !dev_name.contains("ucsi-source") {
+                            if let Ok(online) = fs::read_to_string(path.join("online")) {
+                                if online.trim() == "1" {
+                                    ac_connected = true;
+                                    has_ac_adapter = true;
+                                }
+                            }
+                        }
+                    } else if psy_type == "Battery" || psy_type == "UPS" || dev_name.starts_with("BAT") {
+                        has_sys_battery = true;
+                        if sys_bat_cap.is_none() {
+                            if let Ok(cap_str) = fs::read_to_string(path.join("capacity")) {
+                                sys_bat_cap = cap_str.trim().parse::<u32>().ok();
+                            }
+                        }
+                        if let Ok(status) = fs::read_to_string(path.join("status")) {
+                            let s = status.trim();
+                            if s == "Charging" || s == "Full" || s == "Not charging" {
+                                ac_connected = true;
+                            }
                         }
                     }
                 }
             }
-            return Some(PowerInfo {
-                is_ac: online,
-                battery_pct: cap,
-            });
+
+            // Desktop / server without system battery and without laptop AC adapter
+            if !has_sys_battery && !has_ac_adapter {
+                ac_connected = true;
+            }
+
+            if ac_connected {
+                return Some(PowerInfo {
+                    is_ac: true,
+                    battery_pct: None,
+                });
+            } else if has_sys_battery {
+                return Some(PowerInfo {
+                    is_ac: false,
+                    battery_pct: sys_bat_cap,
+                });
+            }
         }
     }
     None

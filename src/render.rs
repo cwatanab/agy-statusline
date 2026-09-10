@@ -3,7 +3,10 @@
 use std::fmt::Write;
 use crate::bar::{append_bar, append_badge, append_quota_bar, usage_color};
 use crate::format::{write_pct_display, write_human_format, shorten_path, visible_len};
-use crate::icons::{select_icons, BOLD, RESET};
+use crate::icons::{
+    select_icons, ANSI_BRIGHT_BLUE, ANSI_BRIGHT_CYAN, ANSI_BRIGHT_GREEN, ANSI_BRIGHT_MAGENTA,
+    BOLD, RESET,
+};
 use crate::parse::ParsedInput;
 use crate::sys::{get_host_info, get_power_info, get_sys_info, git_info};
 
@@ -109,12 +112,13 @@ pub fn render_line(input: &ParsedInput, classic: bool, override_cols: Option<usi
     let mut out = String::with_capacity(1024);
 
     // ─── 1. Powerline LINE1 Assembly ─────────────────────────────────────────
-    let mut seg_bufs: [String; 8] = [
+    let mut seg_bufs: [String; 12] = [
+        String::new(), String::new(), String::new(), String::new(),
         String::new(), String::new(), String::new(), String::new(),
         String::new(), String::new(), String::new(), String::new(),
     ];
-    let mut seg_bgs: [&'static str; 8] = [""; 8];
-    let mut seg_fgs: [&'static str; 8] = [""; 8];
+    let mut seg_bgs: [&'static str; 12] = [""; 12];
+    let mut seg_fgs: [&'static str; 12] = [""; 12];
     let mut seg_count = 0;
 
     // 1.1 State
@@ -151,7 +155,45 @@ pub fn render_line(input: &ParsedInput, classic: bool, override_cols: Option<usi
         }
     }
 
-    // 1.2 VCS Branch
+    // 1.2 Vim Editor Mode
+    if !input.vim_mode.is_empty() {
+        let mode_raw = input.vim_mode.as_ref();
+        let is_normal = mode_raw.eq_ignore_ascii_case("NORMAL");
+        let is_insert = mode_raw.eq_ignore_ascii_case("INSERT");
+        let is_visual = mode_raw.len() >= 6 && mode_raw[..6].eq_ignore_ascii_case("VISUAL");
+
+        if classic {
+            let _ = write!(seg_bufs[seg_count], "[{}]", mode_raw);
+            seg_bgs[seg_count] = if is_normal {
+                ANSI_BRIGHT_BLUE
+            } else if is_insert {
+                ANSI_BRIGHT_GREEN
+            } else if is_visual {
+                ANSI_BRIGHT_MAGENTA
+            } else {
+                ANSI_BRIGHT_CYAN
+            };
+            seg_fgs[seg_count] = BOLD;
+        } else {
+            seg_bufs[seg_count].push_str(mode_raw);
+            if is_normal {
+                seg_bgs[seg_count] = "\x1b[48;5;33m";
+                seg_fgs[seg_count] = "\x1b[38;5;255m\x1b[1m";
+            } else if is_insert {
+                seg_bgs[seg_count] = "\x1b[48;5;76m";
+                seg_fgs[seg_count] = "\x1b[38;5;232m\x1b[1m";
+            } else if is_visual {
+                seg_bgs[seg_count] = "\x1b[48;5;135m";
+                seg_fgs[seg_count] = "\x1b[38;5;255m\x1b[1m";
+            } else {
+                seg_bgs[seg_count] = "\x1b[48;5;37m";
+                seg_fgs[seg_count] = "\x1b[38;5;232m\x1b[1m";
+            }
+        }
+        seg_count += 1;
+    }
+
+    // 1.3 VCS Branch
     let (vcs_branch, vcs_dirty) = git_info(
         input.working_dir.as_ref(),
         input.vcs_branch.as_ref(),
@@ -252,6 +294,23 @@ pub fn render_line(input: &ParsedInput, classic: bool, override_cols: Option<usi
         seg_bgs[seg_count] = icons.theme.bg_meta;
         seg_fgs[seg_count] = icons.theme.fg_meta_text;
         seg_count += 1;
+    }
+
+    // Safeguard: drop trailing segments if LINE1 exceeds terminal width
+    let calc_line1_len = |count: usize| -> usize {
+        if count == 0 {
+            return 0;
+        }
+        let mut total = if classic { 0 } else { 2 };
+        for i in 0..count {
+            let text_len = visible_len(&seg_bufs[i]);
+            total += if classic { text_len + 1 } else { text_len + 3 };
+        }
+        total
+    };
+
+    while seg_count > 1 && calc_line1_len(seg_count) > cols {
+        seg_count -= 1;
     }
 
     // Write line 1 prefix if framed
@@ -397,10 +456,12 @@ pub fn render_line(input: &ParsedInput, classic: bool, override_cols: Option<usi
     badge_count += 1;
 
     // 2.5 Subagents
-    let mut sub_str = String::with_capacity(8);
-    let _ = write!(sub_str, "{}", input.subagent_count);
-    append_badge(&mut badge_bufs[badge_count], icons.subagents, &sub_str, "37", classic);
-    badge_count += 1;
+    if input.subagent_count > 0 {
+        let mut sub_str = String::with_capacity(8);
+        let _ = write!(sub_str, "{}", input.subagent_count);
+        append_badge(&mut badge_bufs[badge_count], icons.subagents, &sub_str, "37", classic);
+        badge_count += 1;
+    }
 
     // 2.6 Tasks
     let mut task_str = String::with_capacity(8);

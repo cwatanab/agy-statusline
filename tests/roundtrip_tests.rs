@@ -216,3 +216,79 @@ fn turn_tokens_shown() {
     let stripped = strip_ansi(&out);
     assert!(stripped.contains("turn: +500/200"), "Expected turn info: {}", stripped);
 }
+
+#[test]
+fn vim_mode_rendering() {
+    for mode in ["NORMAL", "INSERT", "VISUAL", "VISUAL LINE", "CUSTOM_MODE"] {
+        let json = format!(r#"{{"agent_state":"idle","vim":{{"mode":"{mode}"}},"terminal_width":100}}"#);
+        let out_styled = run_statusline(&json, &[]).unwrap();
+        let stripped_styled = strip_ansi(&out_styled);
+        assert!(
+            stripped_styled.contains(mode),
+            "Styled mode should contain '{}': {}",
+            mode,
+            stripped_styled
+        );
+
+        let out_classic = run_statusline(&json, &["--classic"]).unwrap();
+        let stripped_classic = strip_ansi(&out_classic);
+        let expected_bracket = format!("[{}]", mode);
+        assert!(
+            stripped_classic.contains(&expected_bracket),
+            "Classic mode should contain '{}': {}",
+            expected_bracket,
+            stripped_classic
+        );
+    }
+
+    // Absent vim mode
+    let json_absent = r#"{"agent_state":"idle","terminal_width":100}"#;
+    let out_absent = run_statusline(json_absent, &["--classic"]).unwrap();
+    let stripped = strip_ansi(&out_absent);
+    assert!(!stripped.contains("NORMAL"), "Absent vim should not contain NORMAL: {}", stripped);
+    assert!(!stripped.contains("INSERT"), "Absent vim should not contain INSERT: {}", stripped);
+}
+
+#[test]
+fn subagent_zero_hidden() {
+    let json_zero = r#"{"agent_state":"idle","subagents":[],"terminal_width":120}"#;
+    let out_zero = run_statusline(json_zero, &["--classic"]).unwrap();
+    let stripped_zero = strip_ansi(&out_zero);
+    assert!(
+        !stripped_zero.contains("subagents"),
+        "Zero subagents should not display subagents badge: {}",
+        stripped_zero
+    );
+
+    let json_some = r#"{"agent_state":"idle","subagents":["worker1"],"terminal_width":120}"#;
+    let out_some = run_statusline(json_some, &["--classic"]).unwrap();
+    let stripped_some = strip_ansi(&out_some);
+    assert!(
+        stripped_some.contains("subagents"),
+        "Non-zero subagents should display subagents badge: {}",
+        stripped_some
+    );
+}
+
+#[test]
+fn classic_ac_badge_not_duplicated() {
+    use statusline::bar::make_badge;
+    let badge = make_badge("AC", "AC", "76", true);
+    let plain = strip_ansi(&badge);
+    assert_eq!(plain, "AC", "Classic badge with icon == val should not duplicate: '{}'", plain);
+}
+
+#[test]
+fn line1_responsive_width_safeguard() {
+    // Narrow terminal with long values and vim mode
+    let json = r#"{"agent_state":"working","vim":{"mode":"VISUAL LINE"},"vcs":{"branch":"feature/very-long-branch-name-overflowing-everything","dirty":true},"model":{"id":"gemini-2.0-flash-thinking-exp"},"terminal_width":60}"#;
+    let out = run_statusline(json, &[]).unwrap();
+    let first_line = out.lines().next().unwrap_or("");
+    let plain = strip_ansi(first_line);
+    assert!(
+        plain.chars().count() <= 60,
+        "LINE1 length ({}) exceeds terminal width (60): '{}'",
+        plain.chars().count(),
+        plain
+    );
+}

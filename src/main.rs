@@ -5,7 +5,7 @@ use std::process;
 use statusline::parse;
 use statusline::render;
 
-const LEGEND_TEXT: &str = "\x1b[92m\x1b[1m🚀 Antigravity CLI Maximized Statusline Legend (v0.2.3)\x1b[0m
+const LEGEND_TEXT: &str = "\x1b[92m\x1b[1m🚀 Antigravity CLI Maximized Statusline Legend (v0.2.5)\x1b[0m
 This statusline adapts dynamically to terminal width and displays high-density system & agent telemetry.
 
 \x1b[1mLAYOUTS & AUTO-PACKING:\x1b[0m
@@ -18,8 +18,10 @@ This statusline adapts dynamically to terminal width and displays high-density s
   State: THINKING      \u{F07F7}          ◆           Agent is processing/thinking.
   State: WORKING       \u{F423}          ⚙           Agent is executing background operations.
   State: TOOL          \u{F425}          🔧          Agent is running a tool.
+  Vim Editor Mode                [MODE]      Active Vim editor mode (NORMAL, INSERT, VISUAL, etc.).
   VCS Branch           \u{F418}          ╱           Current Git branch name (Red + * if dirty).
   Model                \u{F400}          (None)      Current active LLM model name/ID.
+  User Account         👤          (None)      Active user subscription plan and email.
   Sandbox Network      \u{F0499}          ON (net)    Sandbox enabled with internet access.
   Sandbox Restricted   \u{F0D34}          ON (no-net) Sandbox enabled with network disabled.
   Sandbox Off          \u{F099C}          sandbox off Sandbox is disabled (runs on host).
@@ -47,7 +49,7 @@ fn main() {
     for arg in env::args().skip(1) {
         match arg.as_str() {
             "--version" | "-v" => {
-                println!("Antigravity CLI Statusline v0.2.3");
+                println!("Antigravity CLI Statusline v0.2.5");
                 process::exit(0);
             }
             "--legend" | "-l" | "legend" => {

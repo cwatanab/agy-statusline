@@ -66,7 +66,11 @@ pub fn build_bar(filled_pct: f64, bar_len: usize, bar_color_num: &str, classic: 
 pub fn append_badge(buf: &mut String, icon: &str, val: &str, icon_color: &str, classic: bool) {
     if classic {
         let ansi_c = to_ansi_color(icon_color);
-        let _ = write!(buf, "{ansi_c}{icon} \x1b[97m{BOLD}{val}{RESET}");
+        if icon == val {
+            let _ = write!(buf, "{ansi_c}{val}{RESET}");
+        } else {
+            let _ = write!(buf, "{ansi_c}{icon} \x1b[97m{BOLD}{val}{RESET}");
+        }
     } else {
         let bg_color = "236";
         let _ = write!(

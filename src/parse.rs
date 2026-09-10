@@ -36,6 +36,7 @@ pub struct ParsedInput<'a> {
     pub product: Cow<'a, str>,
     pub vcs_branch: Cow<'a, str>,
     pub vcs_dirty: bool,
+    pub vim_mode: Cow<'a, str>,
 }
 
 impl<'a> Default for ParsedInput<'a> {
@@ -73,6 +74,7 @@ impl<'a> Default for ParsedInput<'a> {
             product: Cow::Borrowed(""),
             vcs_branch: Cow::Borrowed(""),
             vcs_dirty: false,
+            vim_mode: Cow::Borrowed(""),
         }
     }
 }
@@ -303,9 +305,13 @@ impl<'a> JsonParser<'a> {
         let mut count = 0;
         loop {
             self.skip_whitespace();
-            if self.peek() == Some(b']') {
-                self.advance();
-                return count;
+            match self.peek() {
+                Some(b']') => {
+                    self.advance();
+                    return count;
+                }
+                None => return count,
+                _ => {}
             }
             self.skip_value();
             count += 1;
@@ -356,9 +362,13 @@ impl<'a> JsonParser<'a> {
     fn skip_object(&mut self) {
         loop {
             self.skip_whitespace();
-            if self.peek() == Some(b'}') {
-                self.advance();
-                return;
+            match self.peek() {
+                Some(b'}') => {
+                    self.advance();
+                    return;
+                }
+                None => return,
+                _ => {}
             }
             self.skip_value();
             self.skip_whitespace();
@@ -376,9 +386,13 @@ impl<'a> JsonParser<'a> {
     fn skip_array(&mut self) {
         loop {
             self.skip_whitespace();
-            if self.peek() == Some(b']') {
-                self.advance();
-                return;
+            match self.peek() {
+                Some(b']') => {
+                    self.advance();
+                    return;
+                }
+                None => return,
+                _ => {}
             }
             self.skip_value();
             self.skip_whitespace();
@@ -524,8 +538,52 @@ fn parse_field<'a>(p: &mut JsonParser<'a>, input: &mut ParsedInput<'a>, key: &st
                 parse_vcs(p, input);
             }
         }
+        "vim" => {
+            if !p.is_null() {
+                parse_vim(p, input);
+            }
+        }
         _ => {
             p.skip_value();
+        }
+    }
+}
+
+fn parse_vim<'a>(p: &mut JsonParser<'a>, input: &mut ParsedInput<'a>) {
+    p.skip_whitespace();
+    if p.peek() != Some(b'{') {
+        p.skip_value();
+        return;
+    }
+    p.advance();
+    loop {
+        p.skip_whitespace();
+        match p.peek() {
+            Some(b'}') => {
+                p.advance();
+                break;
+            }
+            Some(b'"') => {}
+            _ => break,
+        }
+        let key = p.read_string();
+        p.skip_whitespace();
+        if p.peek() == Some(b':') {
+            p.advance();
+        }
+        p.skip_whitespace();
+        if key == "mode" {
+            if p.peek() == Some(b'"') {
+                input.vim_mode = p.read_string();
+            } else {
+                p.skip_value();
+            }
+        } else {
+            p.skip_value();
+        }
+        p.skip_whitespace();
+        if p.peek() == Some(b',') {
+            p.advance();
         }
     }
 }

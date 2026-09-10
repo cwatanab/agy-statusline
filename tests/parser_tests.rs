@@ -249,3 +249,34 @@ fn unknown_fields_skipped() {
     );
     assert_eq!(input.agent_state, "working");
 }
+
+#[test]
+fn vim_mode_parsing() {
+    let input = parse_input(r#"{"vim": {"mode": "NORMAL"}}"#);
+    assert_eq!(input.vim_mode, "NORMAL");
+
+    let input = parse_input(r#"{"vim": {"mode": "INSERT"}}"#);
+    assert_eq!(input.vim_mode, "INSERT");
+
+    let input = parse_input(r#"{"vim": {"mode": "VISUAL LINE"}}"#);
+    assert_eq!(input.vim_mode, "VISUAL LINE");
+
+    let input = parse_input(r#"{"vim": {"mode": 123}}"#);
+    assert_eq!(input.vim_mode, "");
+
+    let input = parse_input(r#"{"vim": null}"#);
+    assert_eq!(input.vim_mode, "");
+
+    let input = parse_input(r#"{"terminal_width": 100}"#);
+    assert_eq!(input.vim_mode, "");
+}
+
+#[test]
+fn truncated_array_and_object_no_hang() {
+    // Tests EOF guards in read_array_len, skip_object, skip_array
+    let _ = parse_input(r#"{"subagents": ["#);
+    let _ = parse_input(r#"{"subagents": [1"#);
+    let _ = parse_input(r#"{"vim": {"#);
+    let _ = parse_input(r#"{"vim": {"mode":"#);
+    let _ = parse_input(r#"{"context_window": {"total_tokens": "#);
+}
