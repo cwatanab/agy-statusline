@@ -292,3 +292,15 @@ fn line1_responsive_width_safeguard() {
         plain
     );
 }
+
+#[test]
+fn empty_stdin_renders_idle() {
+    let out = run_statusline("", &[]).expect("Expected statusline to succeed even with empty stdin");
+    let stripped = strip_ansi(&out);
+    assert!(
+        stripped.contains("READY"),
+        "Expected READY in output from empty stdin: {}",
+        stripped
+    );
+}
+

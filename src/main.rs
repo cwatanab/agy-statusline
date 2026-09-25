@@ -5,7 +5,7 @@ use std::process;
 use statusline::parse;
 use statusline::render;
 
-const LEGEND_TEXT: &str = "\x1b[92m\x1b[1m🚀 Antigravity CLI Maximized Statusline Legend (v0.2.5)\x1b[0m
+const LEGEND_TEXT: &str = "\x1b[92m\x1b[1m🚀 Antigravity CLI Maximized Statusline Legend (v0.2.6)\x1b[0m
 This statusline adapts dynamically to terminal width and displays high-density system & agent telemetry.
 
 \x1b[1mLAYOUTS & AUTO-PACKING:\x1b[0m
@@ -49,7 +49,7 @@ fn main() {
     for arg in env::args().skip(1) {
         match arg.as_str() {
             "--version" | "-v" => {
-                println!("Antigravity CLI Statusline v0.2.5");
+                println!("Antigravity CLI Statusline v0.2.6");
                 process::exit(0);
             }
             "--legend" | "-l" | "legend" => {
@@ -73,10 +73,16 @@ fn main() {
     }
 
     let mut stdin = String::with_capacity(512);
-    if io::stdin().read_to_string(&mut stdin).is_err() || stdin.trim().is_empty() {
+    if io::stdin().read_to_string(&mut stdin).is_err() {
         process::exit(0);
     }
 
-    let input = parse::parse_input(&stdin);
+    let stdin_str = if stdin.trim().is_empty() {
+        "{}"
+    } else {
+        &stdin
+    };
+
+    let input = parse::parse_input(stdin_str);
     println!("{}", render::render_line(&input, use_classic, override_cols));
 }
