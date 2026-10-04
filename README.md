@@ -110,6 +110,25 @@ Nerd Font をインストールしていない環境では、`--classic` オプ�
 | `--compact` | 端末幅を強制的に 89 桁としてレンダリング |
 | `--medium` | 端末幅を強制的に 120 桁としてレンダリング |
 | `--medium-wide` | 端末幅を強制的に 150 桁としてレンダリング |
+| `--no-state` | エージェント状態（READY等）を非表示 |
+| `--no-vim` (`--no-vim-mode`) | Vim エディタモードを非表示 |
+| `--no-branch` (`--no-git`) | VCS Git ブランチ名を非表示 |
+| `--no-model` | LLM モデル名を非表示 |
+| `--no-dir` (`--no-cwd`) | 作業ディレクトリを非表示 |
+| `--no-conv` (`--no-conversation`) | 会話 ID を非表示 |
+| `--no-account` (`--no-user`, `--no-plan`) | アカウント・プラン情報を非表示 |
+| `--no-host` | ホスト診断情報を非表示 |
+| `--no-version` | バージョン情報を非表示 |
+| `--no-context-usage` (`--no-context`, `--no-ctx`) | コンテキスト使用率バーを非表示 |
+| `--no-tokens-usage` (`--no-tokens`) | トークン消費量バッジを非表示 |
+| `--no-cost` | コスト表示を非表示（互換フラグ） |
+| `--no-sys` (`--no-system`, `--no-resources`) | ホストリソース（RAM/CPU負荷）を非表示 |
+| `--no-artifacts` | アーティファクト数を非表示 |
+| `--no-subagents` | サブエージェント数を非表示 |
+| `--no-tasks` | バックグラウンドタスク数を非表示 |
+| `--no-sandbox` | サンドボックス状態を非表示 |
+| `--no-quota` | API クォータ残量バーを非表示 |
+| `--no-power` | 電源・バッテリー状態を非表示 |
 
 ---
 

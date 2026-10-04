@@ -102,11 +102,21 @@ pub fn visible_len(s: &str) -> usize {
     while i < bytes.len() {
         if bytes[i] == b'\x1b' {
             i += 1;
-            while i < bytes.len() && bytes[i] != b'm' {
+            if i < bytes.len() && bytes[i] == b'[' {
                 i += 1;
-            }
-            if i < bytes.len() {
-                i += 1;
+                while i < bytes.len() && !bytes[i].is_ascii_alphabetic() {
+                    i += 1;
+                }
+                if i < bytes.len() {
+                    i += 1;
+                }
+            } else {
+                while i < bytes.len() && bytes[i] != b'm' {
+                    i += 1;
+                }
+                if i < bytes.len() {
+                    i += 1;
+                }
             }
         } else {
             // Count UTF-8 lead bytes / ASCII bytes

@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2] - 2026-10-04
+
+### Fixed & Harmonized
+- **コンテキストウィンドウ・トークンメトリクスの整合化 (PR #85)**:
+  - コンテキスト使用トークン数（`CTX_USED`）の計算式をアクティブな使用率（`used_percentage`）およびコンテキスト上限（`context_window_size`）と完全同期：`round(used_percentage * context_window_size / 100)`。
+  - セッション全体の累積出力トークン数により、`22.9%` の使用率表示の横に `512.9K/1.0M`（約48.9%相当）と表示されてしまっていた計算上の不整合を解消。
+  - アクティブなコンテキストウィンドウのパーセンテージ、プログレスバー、トークン分数が100%数学的に一致し、セッション全体の累積トークン数は専用の `total: IN/OUT` バッジに分離して正確に表示。
+- **動的ボックス枠組み & ANSI エスケープ長の適正化 (PR #84)**:
+  - ANSI エスケープシーケンス削除処理（`visible_len`）を強化し、すべての CSI 制御シーケンスを確実に除去して端末幅超過による予期せぬ折り返しや枠崩れを防止。
+  - テレメトリの個別非表示フラグ（`--no-state`, `--no-vim`, `--no-branch`, `--no-model`, `--no-dir`, `--no-conv`, `--no-account`, `--no-host`, `--no-version`, `--no-context`, `--no-tokens`, `--no-cost`, `--no-sys`, `--no-artifacts`, `--no-subagents`, `--no-tasks`, `--no-sandbox`, `--no-quota`, `--no-power`）をサポート。
+  - 全ヘッダー抑制時のヘッダー折りたたみ（Header Collapse: 1行目を非表示にし、バッジ行を `╭─` で開始）および全要素抑制時のクリーンな空出力（0バイト）を実装。
+
 ## [0.2.6] - 2026-09-25
 
 ### Added & Improved
@@ -75,6 +87,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 画面幅によるナロー/ワイドの分岐およびモデル名切り詰め処理を完全に廃止し、常にすべての詳細情報を左詰めで一列に表示するレイアウトに統一。
 - 各表示要素（モデル名、VCS等）の装飾カラーコードを削除し、デフォルトテキスト色に統一。
 
+[0.3.2]: https://github.com/cwatanab/agy-statusline/compare/v0.2.6...v0.3.2
 [0.2.3]: https://github.com/cwatanab/agy-statusline/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/cwatanab/agy-statusline/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/cwatanab/agy-statusline/compare/v0.2.0...v0.2.1

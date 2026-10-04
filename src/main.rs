@@ -5,7 +5,7 @@ use std::process;
 use statusline::parse;
 use statusline::render;
 
-const LEGEND_TEXT: &str = "\x1b[92m\x1b[1m🚀 Antigravity CLI Maximized Statusline Legend (v0.2.6)\x1b[0m
+const LEGEND_TEXT: &str = "\x1b[92m\x1b[1m🚀 Antigravity CLI Maximized Statusline Legend (v0.3.2)\x1b[0m
 This statusline adapts dynamically to terminal width and displays high-density system & agent telemetry.
 
 \x1b[1mLAYOUTS & AUTO-PACKING:\x1b[0m
@@ -45,11 +45,12 @@ fn print_legend() {
 fn main() {
     let mut use_classic = false;
     let mut override_cols: Option<usize> = None;
+    let mut filter = render::FilterFlags::default();
 
     for arg in env::args().skip(1) {
         match arg.as_str() {
             "--version" | "-v" => {
-                println!("Antigravity CLI Statusline v0.2.6");
+                println!("Antigravity CLI Statusline v0.3.2");
                 process::exit(0);
             }
             "--legend" | "-l" | "legend" => {
@@ -68,6 +69,63 @@ fn main() {
             "--classic" | "--no-nerdfont" | "--compatibility" => {
                 use_classic = true;
             }
+            "--no-state" | "-nostate" => {
+                filter.show_state = false;
+            }
+            "--no-vim" | "--no-vim-mode" | "-novim" | "-novimmode" => {
+                filter.show_vim = false;
+            }
+            "--no-branch" | "--no-git" | "-nobranch" | "-nogit" => {
+                filter.show_branch = false;
+            }
+            "--no-model" | "-nomodel" => {
+                filter.show_model = false;
+            }
+            "--no-dir" | "--no-cwd" | "-nodir" | "-nocwd" => {
+                filter.show_dir = false;
+            }
+            "--no-conv" | "--no-conversation" | "-noconv" | "-noconversation" => {
+                filter.show_conv = false;
+            }
+            "--no-account" | "--no-user" | "--no-plan" | "-noaccount" | "-nouser" | "-noplan" => {
+                filter.show_account = false;
+            }
+            "--no-host" | "-nohost" => {
+                filter.show_host = false;
+            }
+            "--no-version" | "-noversion" => {
+                filter.show_version = false;
+            }
+            "--no-context-usage" | "--no-context" | "--no-ctx" | "-nocontextusage" | "-nocontext" => {
+                filter.show_context_usage = false;
+            }
+            "--no-tokens-usage" | "--no-tokens" | "-notokensusage" | "-notokens" => {
+                filter.show_tokens_usage = false;
+            }
+            "--no-cost" | "-nocost" => {
+                filter.show_cost = false;
+            }
+            "--no-sys" | "--no-system" | "--no-resources" | "-nosys" | "-nosystem" | "-noresources" => {
+                filter.show_sys = false;
+            }
+            "--no-artifacts" | "-noartifacts" => {
+                filter.show_artifacts = false;
+            }
+            "--no-subagents" | "-nosubagents" => {
+                filter.show_subagents = false;
+            }
+            "--no-tasks" | "-notasks" => {
+                filter.show_tasks = false;
+            }
+            "--no-sandbox" | "-nosandbox" => {
+                filter.show_sandbox = false;
+            }
+            "--no-quota" | "-noquota" => {
+                filter.show_quota = false;
+            }
+            "--no-power" | "-nopower" => {
+                filter.show_power = false;
+            }
             _ => {}
         }
     }
@@ -84,5 +142,8 @@ fn main() {
     };
 
     let input = parse::parse_input(stdin_str);
-    println!("{}", render::render_line(&input, use_classic, override_cols));
+    let rendered = render::render_line_with_filter(&input, use_classic, override_cols, filter);
+    if !rendered.is_empty() {
+        println!("{}", rendered);
+    }
 }
