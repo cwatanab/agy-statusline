@@ -320,9 +320,10 @@ fn multi_turn_context_token_harmony() {
 }
 
 #[test]
-fn version_flag_reports_v0_3_2() {
+fn version_flag_reports_v0_3_3() {
     let out = run_statusline("{}", &["--version"]).unwrap();
-    assert!(out.contains("0.3.2"), "Version output reports 0.3.2: {}", out);
+    assert!(out.contains("0.3.3"), "Version output reports 0.3.3: {}", out);
+    assert!(!out.contains("0.3.2"), "Version output does not contain stale 0.3.2");
     assert!(!out.contains("0.3.1"), "Version output does not contain stale 0.3.1");
     assert!(!out.contains("0.2.6"), "Version output does not contain stale 0.2.6");
 }
