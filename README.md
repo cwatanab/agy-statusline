@@ -121,7 +121,7 @@ Nerd Font をインストールしていない環境では、`--classic` オプ�
 | `--no-version` | バージョン情報を非表示 |
 | `--no-context-usage` (`--no-context`, `--no-ctx`) | コンテキスト使用率バーを非表示 |
 | `--no-tokens-usage` (`--no-tokens`) | トークン消費量バッジを非表示 |
-| `--no-cost` | コスト表示を非表示（互換フラグ） |
+| `--no-cost` | セッションコストバッジを非表示 |
 | `--no-sys` (`--no-system`, `--no-resources`) | ホストリソース（RAM/CPU負荷）を非表示 |
 | `--no-artifacts` | アーティファクト数を非表示 |
 | `--no-subagents` | サブエージェント数を非表示 |

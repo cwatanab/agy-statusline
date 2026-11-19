@@ -67,6 +67,162 @@ pub fn format_pct_display(pct: f64) -> String {
     buf
 }
 
+/// Format a non-negative decimal/scientific USD string into `buf` without double-rounding.
+/// Returns `Some(whole_dollars_after_rounding)` if formatted, or `None` if zero/invalid.
+pub fn write_usd(buf: &mut String, raw: &str) -> Option<u64> {
+    let s = raw.trim();
+    if s.is_empty() {
+        return None;
+    }
+
+    // Split mantissa and optional exponent
+    let (mant, exp_str) = match s.find(['e', 'E']) {
+        Some(idx) => (&s[..idx], Some(&s[idx + 1..])),
+        None => (s, None),
+    };
+
+    // Split integer and fractional parts of mantissa
+    let (int_raw, frac_raw) = match mant.find('.') {
+        Some(idx) => (&mant[..idx], &mant[idx + 1..]),
+        None => (mant, ""),
+    };
+
+    // Validate mantissa: non-empty integer part, all ASCII digits, and if '.' present, non-empty frac
+    if int_raw.is_empty()
+        || !int_raw.bytes().all(|b| b.is_ascii_digit())
+        || (mant.contains('.') && (frac_raw.is_empty() || !frac_raw.bytes().all(|b| b.is_ascii_digit())))
+    {
+        return None;
+    }
+
+    // Must contain at least one non-zero digit
+    if !int_raw.bytes().any(|b| b != b'0') && !frac_raw.bytes().any(|b| b != b'0') {
+        return None;
+    }
+
+    // Parse exponent if present
+    let exp: i32 = if let Some(es) = exp_str {
+        if es.is_empty() {
+            return None;
+        }
+        let (neg, digits) = if let Some(rest) = es.strip_prefix('-') {
+            (true, rest)
+        } else if let Some(rest) = es.strip_prefix('+') {
+            (false, rest)
+        } else {
+            (false, es)
+        };
+        if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        let abs_exp: i32 = digits.parse().unwrap_or(i32::MAX / 2);
+        if neg { -abs_exp } else { abs_exp }
+    } else {
+        0
+    };
+
+    // Strip leading zeros from integer part
+    let int_d = int_raw.trim_start_matches('0');
+    let total_digits = int_d.len() + frac_raw.len();
+
+    // Helper to get digit at index in `int_d ++ frac_raw`
+    let digit_at = |idx: usize| -> u8 {
+        if idx < int_d.len() {
+            int_d.as_bytes()[idx] - b'0'
+        } else if idx - int_d.len() < frac_raw.len() {
+            frac_raw.as_bytes()[idx - int_d.len()] - b'0'
+        } else {
+            0
+        }
+    };
+
+    // Position of decimal point relative to start of `int_d ++ frac_raw`
+    let dec_pos = int_d.len() as i64 + exp as i64;
+
+    if dec_pos <= -4 {
+        buf.push_str("<$0.0001");
+        return Some(0);
+    }
+
+    // Case: all digits are in the integer part (no fractional digits)
+    if dec_pos >= total_digits as i64 {
+        let mut dollars: u64 = 0;
+        let mut int_str_started = false;
+        buf.push('$');
+        for i in 0..(dec_pos as usize) {
+            let d = if i < total_digits { digit_at(i) } else { 0 };
+            if d != 0 || int_str_started {
+                int_str_started = true;
+                buf.push((b'0' + d) as char);
+                dollars = dollars.saturating_mul(10).saturating_add(d as u64);
+            }
+        }
+        if !int_str_started {
+            buf.push('0');
+        }
+        buf.push_str(".00");
+        return Some(dollars);
+    }
+
+    // Extract integer value (if dec_pos > 0) and first 5 fractional digits
+    let mut dollars: u64 = 0;
+    if dec_pos > 0 {
+        for i in 0..(dec_pos as usize) {
+            let d = digit_at(i);
+            dollars = dollars.saturating_mul(10).saturating_add(d as u64);
+        }
+    }
+
+    let frac_digit = |k: usize| -> u8 {
+        let pos = dec_pos + k as i64;
+        if pos < 0 {
+            0
+        } else {
+            digit_at(pos as usize)
+        }
+    };
+
+    let f0 = frac_digit(0);
+    let f1 = frac_digit(1);
+    let f2 = frac_digit(2);
+    let f3 = frac_digit(3);
+    let f4 = frac_digit(4);
+
+    if dollars == 0 && f0 == 0 && f1 == 0 && f2 == 0 && f3 == 0 {
+        buf.push_str("<$0.0001");
+        return Some(0);
+    }
+
+    let frac5 = (f0 as u32) * 10000
+        + (f1 as u32) * 1000
+        + (f2 as u32) * 100
+        + (f3 as u32) * 10
+        + (f4 as u32);
+
+    if dollars == 0 && frac5 < 995 {
+        let u4 = (f0 as u32) * 1000
+            + (f1 as u32) * 100
+            + (f2 as u32) * 10
+            + (f3 as u32)
+            + if f4 >= 5 { 1 } else { 0 };
+        let _ = write!(buf, "$0.{u4:04}");
+        return Some(0);
+    }
+
+    let cents = (f0 as u64) * 10 + (f1 as u64) + if f2 >= 5 { 1 } else { 0 };
+    let carry = cents / 100;
+    let cents_rem = cents % 100;
+    let final_dollars = dollars.saturating_add(carry);
+    let _ = write!(buf, "${final_dollars}.{cents_rem:02}");
+    Some(final_dollars)
+}
+
+pub fn format_usd(raw: &str) -> Option<String> {
+    let mut buf = String::with_capacity(16);
+    write_usd(&mut buf, raw)?;
+    Some(buf)
+}
+
 pub fn shorten_path(path: &str) -> String {
     if path.is_empty() {
         return String::new();

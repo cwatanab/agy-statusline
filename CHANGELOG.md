@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.4] - 2026-11-19
+
+### Added & Upstream Sync
+- **アップストリーム v0.3.4 同期 (`Session Cost Telemetry Badge`)**:
+  - `cost.total_usd`（フォールバック: `cost.total_cost_usd`）、`cost.subagent_usd`、`cost.estimated` をゼロコピーでパースし、セッションコストバッジを表示。
+  - `write_usd` / `format_usd` による単一ステップ丸め（二重丸め防止、`<$0.0001`、`$0.00995` 未満は小数第4位、それ以上は小数第2位、指数表記対応）を実装。
+  - 閾値カラーリング（`$1.00` 以上: 黄、`$5.00` 以上: 赤）および `--no-cost` 抑制フラグを接続。
+- **バージョン表記・凡例の更新**:
+  - CLI バージョンフラグ（`-v`, `--version`）および凡例（`--legend`）を `v0.3.4` に更新し、凡例内容をアップストリームに整合。
+
 ## [0.3.3] - 2026-10-09
 
 ### Fixed & Upstream Sync

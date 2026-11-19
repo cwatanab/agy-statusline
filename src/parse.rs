@@ -37,6 +37,9 @@ pub struct ParsedInput<'a> {
     pub vcs_branch: Cow<'a, str>,
     pub vcs_dirty: bool,
     pub vim_mode: Cow<'a, str>,
+    pub cost_total: Cow<'a, str>,
+    pub cost_subagent: Cow<'a, str>,
+    pub cost_estimated: bool,
 }
 
 impl<'a> Default for ParsedInput<'a> {
@@ -75,6 +78,9 @@ impl<'a> Default for ParsedInput<'a> {
             vcs_branch: Cow::Borrowed(""),
             vcs_dirty: false,
             vim_mode: Cow::Borrowed(""),
+            cost_total: Cow::Borrowed(""),
+            cost_subagent: Cow::Borrowed(""),
+            cost_estimated: false,
         }
     }
 }
@@ -543,6 +549,11 @@ fn parse_field<'a>(p: &mut JsonParser<'a>, input: &mut ParsedInput<'a>, key: &st
                 parse_vim(p, input);
             }
         }
+        "cost" => {
+            if !p.is_null() {
+                parse_cost(p, input);
+            }
+        }
         _ => {
             p.skip_value();
         }
@@ -585,6 +596,81 @@ fn parse_vim<'a>(p: &mut JsonParser<'a>, input: &mut ParsedInput<'a>) {
         if p.peek() == Some(b',') {
             p.advance();
         }
+    }
+}
+
+fn read_cost_value<'a>(p: &mut JsonParser<'a>) -> Cow<'a, str> {
+    p.skip_whitespace();
+    match p.peek() {
+        Some(b'"') => p.read_string(),
+        Some(b'0'..=b'9' | b'-') => Cow::Borrowed(p.read_number_str()),
+        _ => {
+            p.skip_value();
+            Cow::Borrowed("")
+        }
+    }
+}
+
+fn parse_cost<'a>(p: &mut JsonParser<'a>, input: &mut ParsedInput<'a>) {
+    p.skip_whitespace();
+    if p.peek() != Some(b'{') {
+        p.skip_value();
+        return;
+    }
+    p.advance();
+    let mut total_usd: Option<Cow<'a, str>> = None;
+    let mut total_cost_usd: Option<Cow<'a, str>> = None;
+    loop {
+        p.skip_whitespace();
+        match p.peek() {
+            Some(b'}') => {
+                p.advance();
+                break;
+            }
+            Some(b'"') => {}
+            _ => break,
+        }
+        let key = p.read_string();
+        p.skip_whitespace();
+        if p.peek() == Some(b':') {
+            p.advance();
+        }
+        p.skip_whitespace();
+        match key.as_ref() {
+            "total_usd" => {
+                let val = read_cost_value(p);
+                if !val.is_empty() {
+                    total_usd = Some(val);
+                }
+            }
+            "total_cost_usd" => {
+                let val = read_cost_value(p);
+                if !val.is_empty() {
+                    total_cost_usd = Some(val);
+                }
+            }
+            "subagent_usd" => {
+                input.cost_subagent = read_cost_value(p);
+            }
+            "estimated" => match p.peek() {
+                Some(b'"') => {
+                    let s = p.read_string();
+                    input.cost_estimated = s == "true";
+                }
+                Some(b't' | b'f') => {
+                    input.cost_estimated = p.read_bool();
+                }
+                _ => p.skip_value(),
+            },
+            _ => p.skip_value(),
+        }
+        p.skip_whitespace();
+        if p.peek() == Some(b',') {
+            p.advance();
+        }
+    }
+    if let Some(val) = total_usd.or(total_cost_usd) {
+        input.cost_total = val;
     }
 }
 

@@ -2,7 +2,7 @@
 
 use std::fmt::Write;
 use crate::bar::{append_bar, append_badge, append_quota_bar, usage_color};
-use crate::format::{write_pct_display, write_human_format, shorten_path, visible_len};
+use crate::format::{write_pct_display, write_human_format, write_usd, shorten_path, visible_len};
 use crate::icons::{
     select_icons, ANSI_BRIGHT_BLUE, ANSI_BRIGHT_CYAN, ANSI_BRIGHT_GREEN, ANSI_BRIGHT_MAGENTA,
     BOLD, RESET,
@@ -407,10 +407,11 @@ pub fn render_line_with_filter(
     }
 
     // ─── 2. Telemetry Badges Stream Engine ─────────────────────────────────────
-    let mut badge_bufs: [String; 12] = [
+    let mut badge_bufs: [String; 13] = [
         String::new(), String::new(), String::new(), String::new(),
         String::new(), String::new(), String::new(), String::new(),
         String::new(), String::new(), String::new(), String::new(),
+        String::new(),
     ];
     let mut badge_count = 0;
 
@@ -509,7 +510,33 @@ pub fn render_line_with_filter(
         }
     }
 
-    // 2.3 System Resources
+    // 2.3 Session Cost
+    if filter.show_cost && !input.cost_total.is_empty() {
+        let mut cost_val = String::with_capacity(28);
+        if input.cost_estimated {
+            cost_val.push('~');
+        }
+        if let Some(dollars) = write_usd(&mut cost_val, &input.cost_total) {
+            if !input.cost_subagent.is_empty() {
+                let before_len = cost_val.len();
+                cost_val.push_str(" | sub: ");
+                if write_usd(&mut cost_val, &input.cost_subagent).is_none() {
+                    cost_val.truncate(before_len);
+                }
+            }
+            let cost_color = if dollars >= 5 {
+                "197"
+            } else if dollars >= 1 {
+                "214"
+            } else {
+                "76"
+            };
+            append_badge(&mut badge_bufs[badge_count], icons.cost, &cost_val, cost_color, classic);
+            badge_count += 1;
+        }
+    }
+
+    // 2.4 System Resources
     if filter.show_sys {
         let sys_info = get_sys_info();
         if let (Some(mem_pct), Some(load_1m)) = (sys_info.mem_pct, sys_info.load_1m) {

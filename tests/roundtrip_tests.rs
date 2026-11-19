@@ -19,21 +19,17 @@ fn strip_ansi(s: &str) -> String {
 }
 
 fn run_statusline(json: &str, args: &[&str]) -> Option<String> {
-    let exe = std::env::current_exe().ok()?;
-    let path = exe.parent()?.parent()?.join("statusline");
-    let path = if cfg!(windows) {
-        path.with_extension("exe")
-    } else {
-        path
-    };
-    let mut child = Command::new(&path)
+    let path = env!("CARGO_BIN_EXE_statusline");
+    let mut child = Command::new(path)
         .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
         .ok()?;
-    child.stdin.as_mut()?.write_all(json.as_bytes()).ok()?;
+    if let Some(stdin) = child.stdin.as_mut() {
+        let _ = stdin.write_all(json.as_bytes());
+    }
     let output = child.wait_with_output().ok()?;
     if output.status.success() {
         Some(String::from_utf8_lossy(&output.stdout).to_string())
@@ -320,9 +316,10 @@ fn multi_turn_context_token_harmony() {
 }
 
 #[test]
-fn version_flag_reports_v0_3_3() {
+fn version_flag_reports_v0_3_4() {
     let out = run_statusline("{}", &["--version"]).unwrap();
-    assert!(out.contains("0.3.3"), "Version output reports 0.3.3: {}", out);
+    assert!(out.contains("0.3.4"), "Version output reports 0.3.4: {}", out);
+    assert!(!out.contains("0.3.3"), "Version output does not contain stale 0.3.3");
     assert!(!out.contains("0.3.2"), "Version output does not contain stale 0.3.2");
     assert!(!out.contains("0.3.1"), "Version output does not contain stale 0.3.1");
     assert!(!out.contains("0.2.6"), "Version output does not contain stale 0.2.6");
@@ -386,7 +383,9 @@ fn telemetry_suppression_flags() {
     assert!(!strip_ansi(&out).contains("88.2K/61.1K"), "--no-tokens suppresses token badge");
 
     let out = run_statusline(fixture, &["--no-cost", "--medium-wide"]).unwrap();
-    assert!(!out.is_empty(), "--no-cost runs safely");
+    assert!(!strip_ansi(&out).contains("$0.42"), "--no-cost suppresses cost badge");
+    let out_classic = run_statusline(fixture, &["--classic", "--no-cost", "--medium-wide"]).unwrap();
+    assert!(!strip_ansi(&out_classic).contains("cost $0.42"), "--no-cost suppresses classic cost badge");
 
     let out = run_statusline(fixture, &["--no-sys", "--medium-wide"]).unwrap();
     assert!(!strip_ansi(&out).contains("RAM:"), "--no-sys suppresses CPU/RAM badge");
@@ -439,7 +438,7 @@ fn header_collapse_and_full_suppression() {
     let single_flags = &[
         "--no-state", "--no-vim", "--no-branch", "--no-model",
         "--no-dir", "--no-conv", "--no-account", "--no-host", "--no-version",
-        "--no-tokens", "--no-sys", "--no-artifacts", "--no-subagents",
+        "--no-tokens", "--no-cost", "--no-sys", "--no-artifacts", "--no-subagents",
         "--no-tasks", "--no-sandbox", "--no-quota", "--no-power",
         "--medium-wide"
     ];
@@ -471,6 +470,85 @@ fn header_collapse_and_full_suppression() {
     ];
     let full_supp_out = run_statusline(fixture, all_flags).unwrap();
     assert!(full_supp_out.trim().is_empty(), "Full suppression produces clean empty output: '{}'", full_supp_out);
+}
+
+#[test]
+fn session_cost_telemetry() {
+    let cases = [
+        (
+            r#"{"agent_state":"idle","terminal_width":150,"cost":{"total_usd":0.4213,"subagent_usd":0.125,"estimated":false}}"#,
+            &["--classic"][..],
+            "cost $0.42 | sub: $0.13",
+            Some("~$0.42"),
+        ),
+        (
+            r#"{"agent_state":"idle","terminal_width":150,"cost":{"total_usd":1.5,"subagent_usd":0,"estimated":true}}"#,
+            &[][..],
+            "~$1.50",
+            Some("sub:"),
+        ),
+        (
+            r#"{"agent_state":"idle","terminal_width":150,"cost":{"total_usd":0.0042,"estimated":false}}"#,
+            &["--classic"][..],
+            "cost $0.0042",
+            None,
+        ),
+        (
+            r#"{"agent_state":"idle","terminal_width":150,"cost":{"total_usd":0.0149999,"subagent_usd":0.0042499,"estimated":false}}"#,
+            &["--classic"][..],
+            "cost $0.01 | sub: $0.0042",
+            None,
+        ),
+        (
+            r#"{"agent_state":"idle","terminal_width":150,"cost":{"total_usd":0.0000999,"estimated":false}}"#,
+            &["--classic"][..],
+            "cost <$0.0001",
+            None,
+        ),
+        (
+            r#"{"agent_state":"idle","terminal_width":150,"cost":{"total_usd":3e-5,"estimated":true}}"#,
+            &["--classic"][..],
+            "cost ~<$0.0001",
+            None,
+        ),
+        (
+            r#"{"agent_state":"idle","terminal_width":150,"cost":{"total_cost_usd":0.75}}"#,
+            &["--classic"][..],
+            "cost $0.75",
+            None,
+        ),
+    ];
+
+    for (payload, args, expected, forbidden) in cases {
+        let out = strip_ansi(&run_statusline(payload, args).unwrap());
+        assert!(out.contains(expected), "Expected '{expected}' in '{out}' for {payload}");
+        if let Some(bad) = forbidden {
+            assert!(!out.contains(bad), "Did not expect '{bad}' in '{out}' for {payload}");
+        }
+    }
+
+    let zero = strip_ansi(&run_statusline(
+        r#"{"agent_state":"idle","terminal_width":150,"cost":{"total_usd":0,"subagent_usd":0,"estimated":false}}"#,
+        &["--classic"],
+    ).unwrap());
+    assert!(!zero.contains("cost "), "Zero total_usd omits cost badge: {zero}");
+
+    let malformed = strip_ansi(&run_statusline(
+        r#"{"agent_state":"working","terminal_width":150,"cost":"malformed"}"#,
+        &["--classic"],
+    ).unwrap());
+    assert!(malformed.contains("WORKING"), "Malformed cost preserves remaining fields: {malformed}");
+    assert!(!malformed.contains("cost "), "Malformed cost omits cost badge: {malformed}");
+}
+
+#[test]
+fn legend_reports_v0_3_4() {
+    let out = strip_ansi(&run_statusline("{}", &["--legend"]).unwrap());
+    assert!(out.contains("0.3.4"), "Legend reports 0.3.4");
+    assert!(out.contains("State: UNKNOWN"), "Legend includes unknown state");
+    assert!(out.contains("Session Cost"), "Legend includes Session Cost");
+    assert!(out.contains("Host Diagnostics"), "Legend includes Host Diagnostics");
+    assert!(out.contains("CLI Version"), "Legend includes CLI Version");
 }
 
 
